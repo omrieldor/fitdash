@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FitDash</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#1a6fc4">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="header-inner">
+      <span class="logo">💪 FitDash</span>
+      <div class="header-right">
+        <span class="username">{{ user.username }}</span>
+        <a href="/logout" class="btn-outline">Logout</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Phase Banner -->
+  <div id="phase-banner" class="phase-banner">
+    <div class="phase-info">
+      <span id="phase-label" class="phase-label">Bulk Phase</span>
+      <span id="phase-detail"></span>
+    </div>
+    <div class="phase-progress-wrap">
+      <div class="phase-progress-bar"><div id="phase-progress-fill"></div></div>
+      <span id="phase-progress-text"></span>
+    </div>
+    <button class="btn-outline btn-sm" onclick="toggleSettings()">⚙ Settings</button>
+  </div>
+
+  <!-- Settings Panel -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <h3>Settings</h3>
+    <label>Phase
+      <select id="settings-phase">
+        <option value="bulk">Bulk</option>
+        <option value="cut">Cut</option>
+      </select>
+    </label>
+    <label>Weight target (kg)
+      <input type="number" id="settings-target" step="0.1" min="30" max="200">
+    </label>
+    <button class="btn-primary btn-sm" onclick="saveSettings()">Save</button>
+    <button class="btn-outline btn-sm" onclick="toggleSettings()">Cancel</button>
+  </div>
+
+  <!-- Summary Bar -->
+  <div class="summary-bar">
+    <div class="summary-card"><div class="summary-val" id="s-workouts">—</div><div class="summary-lbl">Workouts this week</div></div>
+    <div class="summary-card"><div class="summary-val" id="s-weight">—</div><div class="summary-lbl">Current weight (kg)</div></div>
+    <div class="summary-card"><div class="summary-val" id="s-sleep">—</div><div class="summary-lbl">Avg sleep (hrs)</div></div>
+    <div class="summary-card"><div class="summary-val" id="s-calories">—</div><div class="summary-lbl">Avg daily calories</div></div>
+  </div>
+
+  <main>
+
+    <!-- Charts Grid -->
+    <div class="charts-grid">
+      <div class="chart-card">
+        <h3>Workouts by type (last 8 weeks)</h3>
+        <div id="hiit-warning" class="hiit-warning hidden">⚠ Low HIIT/Running this week</div>
+        <canvas id="chart-workouts"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Weight over time</h3>
+        <canvas id="chart-weight"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Sleep hours</h3>
+        <canvas id="chart-sleep"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Daily calories</h3>
+        <canvas id="chart-calories"></canvas>
+      </div>
+    </div>
+
+    <!-- Log Forms -->
+    <div class="log-section">
+      <h2>Log Entry</h2>
+      <div class="log-tabs">
+        <button class="tab-btn active" onclick="showTab('workout')">Workout</button>
+        <button class="tab-btn" onclick="showTab('weight')">Weight</button>
+        <button class="tab-btn" onclick="showTab('sleep')">Sleep</button>
+        <button class="tab-btn" onclick="showTab('nutrition')">Nutrition</button>
+      </div>
+
+      <!-- Workout form -->
+      <div id="tab-workout" class="tab-content">
+        <form onsubmit="logEntry(event, 'workout')">
+          <div class="form-row">
+            <label>Type
+              <select name="type">
+                <option value="power">Power</option>
+                <option value="hypertrophy">Hypertrophy</option>
+                <option value="hiit">HIIT</option>
+                <option value="run">Run</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>Duration (min)
+              <input type="number" name="duration" min="1" max="300">
+            </label>
+            <label>Date
+              <input type="date" name="date" id="date-workout">
+            </label>
+          </div>
+          <label>Notes
+            <textarea name="notes" rows="2" placeholder="Sets, reps, how it felt..."></textarea>
+          </label>
+          <button type="submit" class="btn-primary">Log Workout</button>
+        </form>
+      </div>
+
+      <!-- Weight form -->
+      <div id="tab-weight" class="tab-content hidden">
+        <form onsubmit="logEntry(event, 'weight')">
+          <div class="form-row">
+            <label>Weight (kg)
+              <input type="number" name="value_kg" step="0.1" min="30" max="250" required>
+            </label>
+            <label>Date
+              <input type="date" name="date" id="date-weight">
+            </label>
+          </div>
+          <button type="submit" class="btn-primary">Log Weight</button>
+        </form>
+      </div>
+
+      <!-- Sleep form -->
+      <div id="tab-sleep" class="tab-content hidden">
+        <form onsubmit="logEntry(event, 'sleep')">
+          <div class="form-row">
+            <label>Hours slept
+              <input type="number" name="hours" step="0.5" min="0" max="24" required>
+            </label>
+            <label>Bedtime
+              <input type="time" name="bedtime">
+            </label>
+            <label>Wake time
+              <input type="time" name="wake_time">
+            </label>
+            <label>Date
+              <input type="date" name="date" id="date-sleep">
+            </label>
+          </div>
+          <button type="submit" class="btn-primary">Log Sleep</button>
+        </form>
+      </div>
+
+      <!-- Nutrition form -->
+      <div id="tab-nutrition" class="tab-content hidden">
+        <form onsubmit="logEntry(event, 'nutrition')">
+          <div class="form-row">
+            <label>Calories
+              <input type="number" name="calories" min="0">
+            </label>
+            <label>Protein (g)
+              <input type="number" name="protein" step="0.1" min="0">
+            </label>
+            <label>Carbs (g)
+              <input type="number" name="carbs" step="0.1" min="0">
+            </label>
+            <label>Fat (g)
+              <input type="number" name="fat" step="0.1" min="0">
+            </label>
+            <label>Water (ml)
+              <input type="number" name="water_ml" min="0">
+            </label>
+            <label>Date
+              <input type="date" name="date" id="date-nutrition">
+            </label>
+          </div>
+          <button type="submit" class="btn-primary">Log Nutrition</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Weekly Plan -->
+    <div class="plan-section">
+      <h2>Weekly Training Plan</h2>
+      <textarea id="weekly-plan" rows="6" placeholder="Write your training plan for this week..."></textarea>
+      <button class="btn-primary btn-sm" onclick="savePlan()">Save Plan</button>
+    </div>
+
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script>
+    let appData = {};
+
+    async function loadData() {
+      const res = await fetch('/data');
+      appData = await res.json();
+      renderAll();
+    }
+
+    function renderAll() {
+      renderPhaseBanner();
+      renderSummary();
+      renderWorkoutChart();
+      renderWeightChart();
+      renderSleepChart();
+      renderCaloriesChart();
+      document.getElementById('weekly-plan').value = appData.weekly_plan || '';
+    }
+
+    function renderPhaseBanner() {
+      const phase = appData.phase;
+      const target = appData.weight_target_kg;
+      const weights = appData.weights;
+      const label = document.getElementById('phase-label');
+      const detail = document.getElementById('phase-detail');
+      const fill = document.getElementById('phase-progress-fill');
+      const ptext = document.getElementById('phase-progress-text');
+      const banner = document.getElementById('phase-banner');
+
+      label.textContent = phase === 'bulk' ? 'Bulk Phase' : 'Cut Phase';
+      banner.className = 'phase-banner ' + phase;
+
+      if (weights.length > 0) {
+        const current = weights[weights.length - 1].value_kg;
+        detail.textContent = `Current: ${current} kg → Target: ${target} kg`;
+        if (phase === 'bulk') {
+          const start = weights[0].value_kg;
+          const pct = Math.min(100, Math.max(0, ((current - start) / (target - start)) * 100));
+          fill.style.width = pct.toFixed(0) + '%';
+          ptext.textContent = pct.toFixed(0) + '%';
+        } else {
+          const start = weights[0].value_kg;
+          const pct = Math.min(100, Math.max(0, ((start - current) / (start - target)) * 100));
+          fill.style.width = pct.toFixed(0) + '%';
+          ptext.textContent = pct.toFixed(0) + '%';
+        }
+      } else {
+        detail.textContent = `Target: ${target} kg`;
+        fill.style.width = '0%';
+        ptext.textContent = '0%';
+      }
+
+      document.getElementById('settings-phase').value = phase;
+      document.getElementById('settings-target').value = target;
+    }
+
+    function renderSummary() {
+      const today = new Date();
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay() + 1);
+      const weekStr = weekStart.toISOString().slice(0, 10);
+
+      const thisWeekWorkouts = appData.workouts.filter(w => w.date >= weekStr);
+      document.getElementById('s-workouts').textContent = thisWeekWorkouts.length;
+
+      const weights = appData.weights;
+      document.getElementById('s-weight').textContent =
+        weights.length ? weights[weights.length - 1].value_kg.toFixed(1) : '—';
+
+      const sleeps = appData.sleeps.slice(-14);
+      const avgSleep = sleeps.length ? (sleeps.reduce((a, s) => a + s.hours, 0) / sleeps.length).toFixed(1) : '—';
+      document.getElementById('s-sleep').textContent = avgSleep;
+
+      const nutritions = appData.nutritions.slice(-14);
+      const avgCal = nutritions.length
+        ? Math.round(nutritions.reduce((a, n) => a + (n.calories || 0), 0) / nutritions.length)
+        : '—';
+      document.getElementById('s-calories').textContent = avgCal;
+
+      // HIIT/running warning
+      const hiitRun = thisWeekWorkouts.filter(w => w.type === 'hiit' || w.type === 'run').length;
+      document.getElementById('hiit-warning').classList.toggle('hidden', hiitRun > 0 || thisWeekWorkouts.length === 0);
+    }
+
+    let charts = {};
+
+    function renderWorkoutChart() {
+      const ctx = document.getElementById('chart-workouts').getContext('2d');
+      if (charts.workouts) charts.workouts.destroy();
+
+      const weeks = getLast8Weeks();
+      const types = ['power', 'hypertrophy', 'hiit', 'run', 'other'];
+      const colors = ['#1a6fc4', '#4a9edd', '#f0a500', '#2ecc71', '#95a5a6'];
+
+      const datasets = types.map((t, i) => ({
+        label: t.charAt(0).toUpperCase() + t.slice(1),
+        data: weeks.map(w => appData.workouts.filter(e => e.date >= w.start && e.date <= w.end && e.type === t).length),
+        backgroundColor: colors[i],
+      }));
+
+      charts.workouts = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: weeks.map(w => w.label), datasets },
+        options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true, ticks: { stepSize: 1 } } } }
+      });
+    }
+
+    function renderWeightChart() {
+      const ctx = document.getElementById('chart-weight').getContext('2d');
+      if (charts.weight) charts.weight.destroy();
+      const sorted = [...appData.weights].sort((a, b) => a.date.localeCompare(b.date));
+      const target = appData.weight_target_kg;
+      charts.weight = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: sorted.map(w => w.date),
+          datasets: [
+            { label: 'Weight (kg)', data: sorted.map(w => w.value_kg), borderColor: '#1a6fc4', backgroundColor: 'rgba(26,111,196,0.1)', tension: 0.3, fill: true },
+            { label: `Target (${target} kg)`, data: sorted.map(() => target), borderColor: '#f0a500', borderDash: [6, 3], pointRadius: 0 }
+          ]
+        },
+        options: { responsive: true }
+      });
+    }
+
+    function renderSleepChart() {
+      const ctx = document.getElementById('chart-sleep').getContext('2d');
+      if (charts.sleep) charts.sleep.destroy();
+      const sorted = [...appData.sleeps].sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
+      charts.sleep = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: sorted.map(s => s.date),
+          datasets: [
+            { label: 'Hours slept', data: sorted.map(s => s.hours), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0.3, fill: true },
+            { label: '8h target', data: sorted.map(() => 8), borderColor: '#2ecc71', borderDash: [6, 3], pointRadius: 0 }
+          ]
+        },
+        options: { responsive: true }
+      });
+    }
+
+    function renderCaloriesChart() {
+      const ctx = document.getElementById('chart-calories').getContext('2d');
+      if (charts.calories) charts.calories.destroy();
+      const sorted = [...appData.nutritions].sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
+      const calTarget = appData.phase === 'bulk' ? 3000 : 2200;
+      charts.calories = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: sorted.map(n => n.date),
+          datasets: [
+            { label: 'Calories', data: sorted.map(n => n.calories), borderColor: '#f0a500', backgroundColor: 'rgba(240,165,0,0.1)', tension: 0.3, fill: true },
+            { label: `${appData.phase === 'bulk' ? 'Bulk' : 'Cut'} target (${calTarget})`, data: sorted.map(() => calTarget), borderColor: '#e74c3c', borderDash: [6, 3], pointRadius: 0 }
+          ]
+        },
+        options: { responsive: true }
+      });
+    }
+
+    function getLast8Weeks() {
+      const weeks = [];
+      const today = new Date();
+      for (let i = 7; i >= 0; i--) {
+        const end = new Date(today);
+        end.setDate(today.getDate() - today.getDay() + 1 - i * 7 + 6);
+        const start = new Date(end);
+        start.setDate(end.getDate() - 6);
+        weeks.push({
+          start: start.toISOString().slice(0, 10),
+          end: end.toISOString().slice(0, 10),
+          label: `W${8 - i}`
+        });
+      }
+      return weeks;
+    }
+
+    function showTab(name) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.remove('hidden');
+      event.target.classList.add('active');
+    }
+
+    async function logEntry(e, metric) {
+      e.preventDefault();
+      const form = e.target;
+      const data = Object.fromEntries(new FormData(form).entries());
+      await fetch('/log/' + metric, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      form.reset();
+      setDefaultDates();
+      showToast('Logged!');
+      await loadData();
+    }
+
+    async function savePlan() {
+      const text = document.getElementById('weekly-plan').value;
+      await fetch('/log/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_text: text })
+      });
+      showToast('Plan saved!');
+    }
+
+    function toggleSettings() {
+      document.getElementById('settings-panel').classList.toggle('hidden');
+    }
+
+    async function saveSettings() {
+      const phase = document.getElementById('settings-phase').value;
+      const target = parseFloat(document.getElementById('settings-target').value);
+      await fetch('/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase, weight_target_kg: target })
+      });
+      toggleSettings();
+      showToast('Settings saved!');
+      await loadData();
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      setTimeout(() => t.classList.add('hidden'), 2500);
+    }
+
+    function setDefaultDates() {
+      const today = new Date().toISOString().slice(0, 10);
+      ['workout', 'weight', 'sleep', 'nutrition'].forEach(m => {
+        const el = document.getElementById('date-' + m);
+        if (el) el.value = today;
+      });
+    }
+
+    setDefaultDates();
+    loadData();
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/sw.js');
+    }
+  </script>
+</body>
+</html>
