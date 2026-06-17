@@ -27,6 +27,27 @@ class Workout(db.Model):
     duration = db.Column(db.Integer)  # minutes
     notes = db.Column(db.Text)
     date = db.Column(db.Date, default=date.today)
+    exercises = db.relationship('WorkoutExercise', backref='workout', lazy=True,
+                                cascade='all, delete-orphan',
+                                order_by='WorkoutExercise.order')
+
+
+class WorkoutExercise(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    workout_id = db.Column(db.Integer, db.ForeignKey('workout.id'), nullable=False)
+    order = db.Column(db.Integer, default=0)
+    exercise_name = db.Column(db.String(100), nullable=False)
+    # Strength fields
+    sets = db.Column(db.Integer)
+    reps = db.Column(db.Integer)
+    weight_kg = db.Column(db.Float)
+    duration_seconds = db.Column(db.Integer)
+    rest_seconds = db.Column(db.Integer)
+    # Run fields
+    distance_km = db.Column(db.Float)
+    avg_heart_rate = db.Column(db.Integer)
+    avg_speed_min_per_km = db.Column(db.String(10))
+    elevation_m = db.Column(db.Float)
 
 
 class Weight(db.Model):

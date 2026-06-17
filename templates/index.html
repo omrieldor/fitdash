@@ -96,29 +96,57 @@
 
       <!-- Workout form -->
       <div id="tab-workout" class="tab-content">
-        <form onsubmit="logEntry(event, 'workout')">
-          <div class="form-row">
-            <label>Type
-              <select name="type">
-                <option value="power">Power</option>
-                <option value="hypertrophy">Hypertrophy</option>
-                <option value="hiit">HIIT</option>
-                <option value="run">Run</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-            <label>Duration (min)
-              <input type="number" name="duration" min="1" max="300">
-            </label>
-            <label>Date
-              <input type="date" name="date" id="date-workout">
-            </label>
-          </div>
-          <label>Notes
-            <textarea name="notes" rows="2" placeholder="Sets, reps, how it felt..."></textarea>
+        <div class="form-row">
+          <label>Type
+            <select id="wo-type" onchange="updateExerciseMode()">
+              <option value="power">Power</option>
+              <option value="hypertrophy">Hypertrophy</option>
+              <option value="hiit">HIIT</option>
+              <option value="run">Run</option>
+              <option value="other">Other</option>
+            </select>
           </label>
-          <button type="submit" class="btn-primary">Log Workout</button>
-        </form>
+          <label>Total duration (min)
+            <input type="number" id="wo-duration" min="1" max="600" placeholder="optional">
+          </label>
+          <label>Date
+            <input type="date" id="wo-date">
+          </label>
+          <label>Session notes
+            <input type="text" id="wo-notes" placeholder="optional">
+          </label>
+        </div>
+
+        <div class="ex-table-wrap" id="ex-table-wrap">
+          <div class="ex-header" id="ex-header-str">
+            <span class="ex-h-num">#</span>
+            <span class="ex-h-name">Exercise</span>
+            <span class="ex-h-col">Sets</span>
+            <span class="ex-h-col">Reps</span>
+            <span class="ex-h-col">Weight (kg)</span>
+            <span class="ex-h-col">Time</span>
+            <span class="ex-h-col">Rest</span>
+            <span class="ex-h-del"></span>
+          </div>
+          <div class="ex-header hidden" id="ex-header-run">
+            <span class="ex-h-num">#</span>
+            <span class="ex-h-name">Label</span>
+            <span class="ex-h-col">Dist (km)</span>
+            <span class="ex-h-col">Duration</span>
+            <span class="ex-h-col">Avg HR</span>
+            <span class="ex-h-col">Speed (min/km)</span>
+            <span class="ex-h-col">Elev (m)</span>
+            <span class="ex-h-del"></span>
+          </div>
+          <div id="ex-rows"></div>
+          <button type="button" class="btn-add-ex" onclick="addExerciseRow()">+ Add exercise</button>
+        </div>
+
+        <div class="ex-actions">
+          <button type="button" class="btn-primary" onclick="saveWorkout()">Save Workout</button>
+          <button type="button" class="btn-discard" onclick="discardWorkout()">Discard</button>
+        </div>
+        <div id="wo-error" class="wo-error hidden"></div>
       </div>
 
       <!-- Weight form -->
@@ -431,12 +459,159 @@
 
     function setDefaultDates() {
       const today = new Date().toISOString().slice(0, 10);
-      ['workout', 'weight', 'sleep', 'nutrition'].forEach(m => {
+      ['weight', 'sleep', 'nutrition'].forEach(m => {
         const el = document.getElementById('date-' + m);
         if (el) el.value = today;
       });
+      const woDate = document.getElementById('wo-date');
+      if (woDate && !woDate.value) woDate.value = today;
     }
 
+    // === Exercise logger ===
+    let exRowCount = 0;
+
+    function updateExerciseMode() {
+      const run = document.getElementById('wo-type').value === 'run';
+      document.getElementById('ex-header-str').classList.toggle('hidden', run);
+      document.getElementById('ex-header-run').classList.toggle('hidden', !run);
+      document.getElementById('ex-table-wrap').classList.toggle('run-mode', run);
+      document.querySelectorAll('#ex-rows .ex-name').forEach(inp => {
+        inp.placeholder = run ? 'e.g. Night run' : 'e.g. Bench press';
+      });
+    }
+
+    function addExerciseRow() {
+      const currentCount = document.querySelectorAll('#ex-rows .ex-row').length;
+      const run = document.getElementById('wo-type').value === 'run';
+      const row = document.createElement('div');
+      row.className = 'ex-row';
+      row.innerHTML =
+        '<span class="ex-num">' + (currentCount + 1) + '</span>' +
+        '<input class="ex-name" type="text" placeholder="' + (run ? 'e.g. Night run' : 'e.g. Bench press') + '" oninput="this.classList.remove(\'field-error\')">' +
+        '<span class="str-group">' +
+          '<input class="ex-sets" type="number" min="1" max="20" placeholder="3" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-reps" type="number" min="1" max="200" placeholder="10" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-weight" type="number" min="0" max="500" step="0.5" placeholder="0" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-time" type="text" placeholder="1:30" title="Time (MM:SS)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-rest" type="text" placeholder="2:30" title="Rest (MM:SS)" oninput="this.classList.remove(\'field-error\')">' +
+        '</span>' +
+        '<span class="run-group">' +
+          '<input class="ex-dist" type="number" step="0.01" min="0" max="200" placeholder="km" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-rundur" type="text" placeholder="25:00" title="Duration (MM:SS)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-hr" type="number" min="40" max="230" placeholder="bpm" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-speed" type="text" placeholder="5:00" title="Avg pace (min/km)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-elev" type="number" placeholder="m" oninput="this.classList.remove(\'field-error\')">' +
+        '</span>' +
+        '<button type="button" class="ex-del" onclick="this.closest(\'.ex-row\').remove(); renumberRows()">×</button>';
+      document.getElementById('ex-rows').appendChild(row);
+    }
+
+    function renumberRows() {
+      document.querySelectorAll('#ex-rows .ex-row').forEach((row, i) => {
+        row.querySelector('.ex-num').textContent = i + 1;
+      });
+    }
+
+    async function saveWorkout() {
+      document.querySelectorAll('#ex-rows .field-error').forEach(el => el.classList.remove('field-error'));
+      hideWoError();
+
+      const type = document.getElementById('wo-type').value;
+      const isRun = type === 'run';
+      const dateVal = document.getElementById('wo-date').value;
+      const duration = document.getElementById('wo-duration').value;
+      const notes = document.getElementById('wo-notes').value.trim();
+
+      const exercises = [];
+      let hasError = false;
+
+      document.querySelectorAll('#ex-rows .ex-row').forEach(row => {
+        const name = row.querySelector('.ex-name').value.trim();
+        if (!name) return;
+        const ex = { name };
+
+        if (isRun) {
+          const distEl = row.querySelector('.ex-dist');
+          const hrEl = row.querySelector('.ex-hr');
+          ex.distance_km = distEl.value || null;
+          ex.time = row.querySelector('.ex-rundur').value || null;
+          ex.avg_heart_rate = hrEl.value || null;
+          ex.avg_speed = row.querySelector('.ex-speed').value || null;
+          ex.elevation_m = row.querySelector('.ex-elev').value || null;
+          if (ex.distance_km && (parseFloat(ex.distance_km) <= 0 || parseFloat(ex.distance_km) > 200)) {
+            distEl.classList.add('field-error'); hasError = true;
+          }
+          if (ex.avg_heart_rate && (parseInt(ex.avg_heart_rate) < 40 || parseInt(ex.avg_heart_rate) > 230)) {
+            hrEl.classList.add('field-error'); hasError = true;
+          }
+        } else {
+          const setsEl = row.querySelector('.ex-sets');
+          const repsEl = row.querySelector('.ex-reps');
+          const weightEl = row.querySelector('.ex-weight');
+          ex.sets = setsEl.value || null;
+          ex.reps = repsEl.value || null;
+          ex.weight_kg = weightEl.value || null;
+          ex.time = row.querySelector('.ex-time').value || null;
+          ex.rest = row.querySelector('.ex-rest').value || null;
+          if (ex.sets && (parseInt(ex.sets) < 1 || parseInt(ex.sets) > 20)) {
+            setsEl.classList.add('field-error'); hasError = true;
+          }
+          if (ex.reps && (parseInt(ex.reps) < 1 || parseInt(ex.reps) > 200)) {
+            repsEl.classList.add('field-error'); hasError = true;
+          }
+          if (ex.weight_kg !== null && ex.weight_kg !== '' && (parseFloat(ex.weight_kg) < 0 || parseFloat(ex.weight_kg) > 500)) {
+            weightEl.classList.add('field-error'); hasError = true;
+          }
+        }
+        exercises.push(ex);
+      });
+
+      if (hasError) {
+        showWoError('Some values are out of range (highlighted red). Please correct them.');
+        return;
+      }
+
+      const res = await fetch('/log/workout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type, notes,
+          date: dateVal || new Date().toISOString().slice(0, 10),
+          duration: duration || null,
+          exercises
+        })
+      });
+
+      if (res.ok) {
+        discardWorkout();
+        showToast('Workout saved!');
+        await loadData();
+      } else {
+        showWoError('Failed to save. Please try again.');
+      }
+    }
+
+    function discardWorkout() {
+      document.getElementById('wo-type').value = 'power';
+      document.getElementById('wo-duration').value = '';
+      document.getElementById('wo-notes').value = '';
+      document.getElementById('wo-date').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('ex-rows').innerHTML = '';
+      hideWoError();
+      updateExerciseMode();
+      addExerciseRow();
+    }
+
+    function showWoError(msg) {
+      const el = document.getElementById('wo-error');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+    function hideWoError() {
+      document.getElementById('wo-error').classList.add('hidden');
+    }
+
+    addExerciseRow();
     setDefaultDates();
     loadData();
 

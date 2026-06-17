@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from models import db, User, Workout, Weight, Sleep, Nutrition, WeeklyPlan
+from models import db, User, Workout, WorkoutExercise, Weight, Sleep, Nutrition, WeeklyPlan
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-in-prod')
@@ -23,6 +23,55 @@ def load_user(user_id):
 
 with app.app_context():
     db.create_all()
+
+
+# --- Helpers ---
+
+def _safe_int(val, lo, hi):
+    if val is None or val == '':
+        return None
+    try:
+        v = int(val)
+        return v if lo <= v <= hi else None
+    except (TypeError, ValueError):
+        return None
+
+def _safe_float(val, lo, hi):
+    if val is None or val == '':
+        return None
+    try:
+        v = float(val)
+        return v if lo <= v <= hi else None
+    except (TypeError, ValueError):
+        return None
+
+def _parse_mmss(val):
+    if not val or str(val).strip() == '':
+        return None
+    val = str(val).strip()
+    if ':' in val:
+        parts = val.split(':')
+        try:
+            return int(parts[0]) * 60 + int(parts[1])
+        except (ValueError, IndexError):
+            return None
+    try:
+        return int(float(val) * 60)
+    except (TypeError, ValueError):
+        return None
+
+def _clean_speed(val):
+    if not val or str(val).strip() == '':
+        return None
+    val = str(val).strip()[:10]
+    if ':' in val:
+        parts = val.split(':')
+        try:
+            int(parts[0]); int(parts[1])
+            return val
+        except (ValueError, IndexError):
+            return None
+    return None
 
 
 # --- Auth ---
@@ -85,8 +134,17 @@ def index():
 @app.route('/data')
 @login_required
 def get_data():
-    workouts = [{'type': w.type, 'duration': w.duration, 'notes': w.notes,
-                 'date': str(w.date)} for w in current_user.workouts]
+    workouts = [{
+        'id': w.id, 'type': w.type, 'duration': w.duration, 'notes': w.notes,
+        'date': str(w.date),
+        'exercises': [{
+            'name': e.exercise_name, 'sets': e.sets, 'reps': e.reps,
+            'weight_kg': e.weight_kg, 'duration_seconds': e.duration_seconds,
+            'rest_seconds': e.rest_seconds, 'distance_km': e.distance_km,
+            'avg_heart_rate': e.avg_heart_rate, 'avg_speed': e.avg_speed_min_per_km,
+            'elevation_m': e.elevation_m
+        } for e in w.exercises]
+    } for w in current_user.workouts]
     weights = [{'value_kg': w.value_kg, 'date': str(w.date)} for w in current_user.weights]
     sleeps = [{'hours': s.hours, 'bedtime': s.bedtime, 'wake_time': s.wake_time,
                'date': str(s.date)} for s in current_user.sleeps]
@@ -115,11 +173,32 @@ def log_workout():
     entry = Workout(
         user_id=current_user.id,
         type=data.get('type', 'other'),
-        duration=data.get('duration'),
-        notes=data.get('notes', ''),
+        duration=_safe_int(data.get('duration'), 1, 600),
+        notes=data.get('notes', '')[:500],
         date=date.fromisoformat(data['date']) if data.get('date') else date.today()
     )
     db.session.add(entry)
+    db.session.flush()
+
+    for i, ex in enumerate(data.get('exercises', [])):
+        name = str(ex.get('name', '')).strip()[:100]
+        if not name:
+            continue
+        db.session.add(WorkoutExercise(
+            workout_id=entry.id,
+            order=i,
+            exercise_name=name,
+            sets=_safe_int(ex.get('sets'), 1, 20),
+            reps=_safe_int(ex.get('reps'), 1, 200),
+            weight_kg=_safe_float(ex.get('weight_kg'), 0, 500),
+            duration_seconds=_parse_mmss(ex.get('time')),
+            rest_seconds=_parse_mmss(ex.get('rest')),
+            distance_km=_safe_float(ex.get('distance_km'), 0.01, 200),
+            avg_heart_rate=_safe_int(ex.get('avg_heart_rate'), 40, 230),
+            avg_speed_min_per_km=_clean_speed(ex.get('avg_speed')),
+            elevation_m=_safe_float(ex.get('elevation_m'), -5000, 9000)
+        ))
+
     db.session.commit()
     return jsonify({'status': 'ok'})
 
