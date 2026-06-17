@@ -267,6 +267,17 @@ def log_plan():
     return jsonify({'status': 'ok'})
 
 
+@app.route('/delete/workout/<int:workout_id>', methods=['DELETE'])
+@login_required
+def delete_workout(workout_id):
+    workout = Workout.query.filter_by(id=workout_id, user_id=current_user.id).first()
+    if not workout:
+        return jsonify({'status': 'not found'}), 404
+    db.session.delete(workout)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
 @app.route('/settings', methods=['POST'])
 @login_required
 def update_settings():

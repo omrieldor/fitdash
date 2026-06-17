@@ -213,6 +213,12 @@
       </div>
     </div>
 
+    <!-- Recent Workouts -->
+    <div class="log-section">
+      <h2>Recent Workouts</h2>
+      <div id="recent-workouts"></div>
+    </div>
+
     <!-- Weekly Plan -->
     <div class="plan-section">
       <h2>Weekly Training Plan</h2>
@@ -240,6 +246,7 @@
       renderWeightChart();
       renderSleepChart();
       renderCaloriesChart();
+      renderRecentWorkouts();
       document.getElementById('weekly-plan').value = appData.weekly_plan || '';
     }
 
@@ -399,6 +406,74 @@
         });
       }
       return weeks;
+    }
+
+    function secsToMMSS(s) {
+      if (!s && s !== 0) return null;
+      const m = Math.floor(s / 60), sec = s % 60;
+      return m + ':' + String(sec).padStart(2, '0');
+    }
+
+    function renderRecentWorkouts() {
+      const container = document.getElementById('recent-workouts');
+      const sorted = [...appData.workouts].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
+      if (!sorted.length) {
+        container.innerHTML = '<p class="no-workouts">No workouts logged yet.</p>';
+        return;
+      }
+      container.innerHTML = sorted.map(w => {
+        const typeLabel = w.type.charAt(0).toUpperCase() + w.type.slice(1);
+        const dur = w.duration ? w.duration + ' min' : '';
+        const exRows = (w.exercises || []).map((ex, i) => {
+          const isRun = w.type === 'run';
+          let detail = '';
+          if (isRun) {
+            const parts = [];
+            if (ex.distance_km) parts.push(ex.distance_km + ' km');
+            if (ex.duration_seconds) parts.push(secsToMMSS(ex.duration_seconds));
+            if (ex.avg_heart_rate) parts.push(ex.avg_heart_rate + ' bpm');
+            if (ex.avg_speed) parts.push(ex.avg_speed + '/km');
+            if (ex.elevation_m) parts.push(ex.elevation_m + ' m elev');
+            detail = parts.join(' · ');
+          } else {
+            const parts = [];
+            if (ex.sets) parts.push(ex.sets + ' sets');
+            if (ex.reps) parts.push(ex.reps + ' reps');
+            if (ex.weight_kg != null) parts.push(ex.weight_kg + ' kg');
+            if (ex.duration_seconds) parts.push(secsToMMSS(ex.duration_seconds));
+            if (ex.rest_seconds) parts.push('rest ' + secsToMMSS(ex.rest_seconds));
+            detail = parts.join(' · ');
+          }
+          return '<div class="wo-ex-row"><span class="wo-ex-num">' + (i + 1) + '</span>' +
+                 '<span class="wo-ex-name">' + ex.name + '</span>' +
+                 (detail ? '<span class="wo-ex-detail">' + detail + '</span>' : '') + '</div>';
+        }).join('');
+        const noteStr = w.notes ? '<span class="wo-hist-note">' + w.notes + '</span>' : '';
+        return '<div class="wo-hist-item" id="wo-' + w.id + '">' +
+          '<div class="wo-hist-header">' +
+            '<div class="wo-hist-meta">' +
+              '<span class="wo-hist-type wo-type-' + w.type + '">' + typeLabel + '</span>' +
+              '<span class="wo-hist-date">' + w.date + '</span>' +
+              (dur ? '<span class="wo-hist-dur">' + dur + '</span>' : '') +
+              noteStr +
+            '</div>' +
+            '<button class="btn-delete-wo" onclick="deleteWorkout(' + w.id + ')" title="Delete workout">🗑</button>' +
+          '</div>' +
+          (exRows ? '<div class="wo-ex-list">' + exRows + '</div>' : '') +
+        '</div>';
+      }).join('');
+    }
+
+    async function deleteWorkout(id) {
+      if (!confirm('Delete this workout?')) return;
+      const res = await fetch('/delete/workout/' + id, { method: 'DELETE' });
+      if (res.ok) {
+        document.getElementById('wo-' + id)?.remove();
+        showToast('Workout deleted.');
+        await loadData();
+      } else {
+        showToast('Could not delete workout.');
+      }
     }
 
     function showTab(name) {
