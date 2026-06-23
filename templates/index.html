@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="/static/style.css?v=35">
+  <link rel="stylesheet" href="/static/style.css?v=36">
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -730,26 +730,16 @@
         sleepMap[s.date].id = s.id;
       });
       const loggedDays = Object.keys(sleepMap).sort();
-      if (!loggedDays.length) {
-        if (!charts.sleep) {
-          charts.sleep = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: { ...chartDefaults, responsive: true } });
-        } else {
-          charts.sleep.data.labels = [];
-          charts.sleep.data.datasets = [];
-          charts.sleep.update();
-        }
-        return;
-      }
       const today = new Date();
       const cutoff = new Date(today);
       cutoff.setDate(today.getDate() - 30);
-      const cutoffStr = cutoff.toISOString().slice(0, 10);
-      const last = new Date(loggedDays[loggedDays.length - 1]);
-      const start = new Date(Math.max(new Date(loggedDays[0]), cutoff));
+      const last = loggedDays.length ? new Date(loggedDays[loggedDays.length - 1]) : today;
+      const start = loggedDays.length ? new Date(Math.max(new Date(loggedDays[0]), cutoff)) : new Date(cutoff);
       const days = [];
       for (let d = new Date(start); d <= last; d.setDate(d.getDate() + 1)) {
         days.push(d.toISOString().slice(0, 10));
       }
+      if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); } }
       const labels = days.map(d => fmtDate(d));
       const newDatasets = [
         { label: 'Hours slept', data: days.map(d => sleepMap[d] ? sleepMap[d].hours : 0), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0, fill: true, _ids: days.map(d => sleepMap[d] ? sleepMap[d].id : null), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
@@ -782,16 +772,16 @@
         d.ids.push(n.id);
       });
       const loggedDays = Object.keys(dailyMap).sort();
-      if (!loggedDays.length) return;
       const today = new Date();
       const cutoff = new Date(today);
       cutoff.setDate(today.getDate() - 30);
-      const last = new Date(loggedDays[loggedDays.length - 1]);
-      const start = new Date(Math.max(new Date(loggedDays[0]), cutoff));
+      const last = loggedDays.length ? new Date(loggedDays[loggedDays.length - 1]) : today;
+      const start = loggedDays.length ? new Date(Math.max(new Date(loggedDays[0]), cutoff)) : new Date(cutoff);
       const days = [];
       for (let d = new Date(start); d <= last; d.setDate(d.getDate() + 1)) {
         days.push(d.toISOString().slice(0, 10));
       }
+      if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); } }
       const contDays = days.map(d => dailyMap[d] || { carbs: 0, protein: 0, creatine: 0, ids: [] });
       const contLabels = days.map(d => fmtDate(d));
       const newDatasets = [
@@ -1060,7 +1050,7 @@
       }
       const chartKey = ['workouts', 'weight', 'sleep', 'calories'][index];
       if (chartKey && charts[chartKey]) charts[chartKey].resize();
-      window.scrollTo(0, 0);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     let activePageIndex = 0;
