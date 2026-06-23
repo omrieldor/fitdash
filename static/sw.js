@@ -1,4 +1,4 @@
-const CACHE = 'eldorado-v34';
+const CACHE = 'eldorado-v35';
 const STATIC = ['/static/style.css?v=34', '/static/manifest.json', '/static/icon-180.png', '/static/icon-512.png'];
 
 self.addEventListener('install', e => {

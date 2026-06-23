@@ -541,30 +541,17 @@ header {
 .pages-container {
   max-width: 900px;
   margin: 1.5rem auto 0;
-  display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  align-items: flex-start;
-  overscroll-behavior-x: contain;
-  touch-action: pan-x;
-  will-change: scroll-position;
 }
-.pages-container::-webkit-scrollbar { display: none; }
 
 .page {
-  width: 100%;
-  min-width: 100%;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
+  display: none;
   padding: 0 1rem 3rem;
-  display: flex;
   flex-direction: column;
   gap: 1.8rem;
-  flex-shrink: 0;
   box-sizing: border-box;
+}
+.page.active {
+  display: flex;
 }
 
 

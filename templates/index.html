@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="/static/style.css?v=34">
+  <link rel="stylesheet" href="/static/style.css?v=35">
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -484,7 +484,6 @@
       renderPageCharts(activePageIndex);
       renderRecentWorkouts();
       leaderboardStale = true;
-      setTimeout(resizeContainer, 50);
       document.getElementById('weekly-plan').value = appData.weekly_plan || '';
       const planText = (appData.weekly_plan || '').trim();
       const planDisplay = document.getElementById('plan-display');
@@ -1047,82 +1046,45 @@
     }
 
     function scrollToPage(index) {
-      const container = document.getElementById('pages-container');
       activePageIndex = index;
       document.querySelectorAll('.page-tab').forEach((tab, i) => {
         tab.classList.toggle('active', i === index);
       });
+      document.querySelectorAll('.page').forEach((page, i) => {
+        page.classList.toggle('active', i === index);
+      });
       renderPageCharts(index);
-      container.scrollTo({ left: index * container.clientWidth, behavior: 'smooth' });
       if (index === 4 && leaderboardStale) {
         leaderboardStale = false;
         loadLeaderboard();
       }
-      setTimeout(resizeContainer, 50);
+      const chartKey = ['workouts', 'weight', 'sleep', 'calories'][index];
+      if (chartKey && charts[chartKey]) charts[chartKey].resize();
+      window.scrollTo(0, 0);
     }
 
     let activePageIndex = 0;
-    let _scrollSettleTimer = null;
-
-    function updateActiveTab() {
-      const container = document.getElementById('pages-container');
-      const cw = container.clientWidth;
-      if (!cw) return;
-      const index = Math.round(container.scrollLeft / cw);
-      if (index === activePageIndex) return;
-      activePageIndex = index;
-      document.querySelectorAll('.page-tab').forEach((tab, i) => {
-        tab.classList.toggle('active', i === index);
-      });
-      renderPageCharts(index);
-      if (index === 4 && leaderboardStale) {
-        leaderboardStale = false;
-        loadLeaderboard();
-      }
-      resizeContainer();
-    }
-
-    function resizeContainer() {
-      const container = document.getElementById('pages-container');
-      const pages = container.querySelectorAll('.page');
-      if (pages[activePageIndex]) {
-        container.style.height = pages[activePageIndex].scrollHeight + 'px';
-      }
-    }
-
-    let _scrollRaf = null;
-    function onScrollThrottled() {
-      if (_scrollRaf) return;
-      _scrollRaf = requestAnimationFrame(() => {
-        _scrollRaf = null;
-        updateActiveTab();
-      });
-      clearTimeout(_scrollSettleTimer);
-      _scrollSettleTimer = setTimeout(() => {
-        const container = document.getElementById('pages-container');
-        const cw = container.clientWidth;
-        if (!cw) return;
-        const index = Math.round(container.scrollLeft / cw);
-        if (index !== activePageIndex) {
-          activePageIndex = index;
-          document.querySelectorAll('.page-tab').forEach((tab, i) => {
-            tab.classList.toggle('active', i === index);
-          });
-          renderPageCharts(index);
-          resizeContainer();
-        }
-        const chartKey = ['workouts', 'weight', 'sleep', 'calories'][index];
-        if (chartKey && charts[chartKey]) charts[chartKey].resize();
-      }, 150);
-    }
 
     document.addEventListener('DOMContentLoaded', () => {
-      const container = document.getElementById('pages-container');
-      container.addEventListener('scroll', onScrollThrottled, { passive: true });
+      document.querySelectorAll('.page').forEach((page, i) => {
+        page.classList.toggle('active', i === 0);
+      });
 
-      const ro = new ResizeObserver(() => resizeContainer());
-      ro.observe(container);
-      resizeContainer();
+      let touchStartX = 0;
+      let touchStartY = 0;
+      const container = document.getElementById('pages-container');
+      container.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }, { passive: true });
+      container.addEventListener('touchend', (e) => {
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          if (dx < 0 && activePageIndex < 4) scrollToPage(activePageIndex + 1);
+          else if (dx > 0 && activePageIndex > 0) scrollToPage(activePageIndex - 1);
+        }
+      }, { passive: true });
     });
 
     async function logEntry(e, metric) {
