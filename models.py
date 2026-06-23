@@ -73,6 +73,7 @@ class Nutrition(db.Model):
     protein = db.Column(db.Float)  # grams
     carbs = db.Column(db.Float)
     fat = db.Column(db.Float)
+    creatine = db.Column(db.Float)  # grams
     water_ml = db.Column(db.Integer)
     date = db.Column(db.Date, default=date.today)
 

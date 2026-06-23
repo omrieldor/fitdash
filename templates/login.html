@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>FitDash — {% if mode == 'register' %}Sign Up{% else %}Login{% endif %}</title>
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#1a6fc4">
-  <link rel="stylesheet" href="/static/style.css">
+  <meta name="theme-color" content="#2a2d35">
+  <link rel="stylesheet" href="/static/style.css?v=29">
 </head>
 <body class="auth-body">
   <div class="auth-card">
@@ -21,9 +21,10 @@
     {% if mode == 'register' %}
     <h2>Create account</h2>
     <form method="POST" action="/register">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="text" name="username" placeholder="Username" required>
       <input type="email" name="email" placeholder="Email" required>
-      <input type="password" name="password" placeholder="Password" required>
+      <input type="password" name="password" placeholder="Password" required minlength="4">
       <button type="submit" class="btn-primary">Sign Up</button>
     </form>
     <p class="auth-switch">Already have an account? <a href="/login">Log in</a></p>
@@ -31,6 +32,7 @@
     {% else %}
     <h2>Welcome back</h2>
     <form method="POST" action="/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="text" name="username" placeholder="Username" required>
       <input type="password" name="password" placeholder="Password" required>
       <button type="submit" class="btn-primary">Log In</button>

@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>FitDash</title>
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#1a6fc4">
+  <meta name="theme-color" content="#2a2d35">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <link rel="stylesheet" href="/static/style.css?v=29">
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
@@ -19,10 +20,50 @@
       <span class="logo">💪 FitDash</span>
       <div class="header-right">
         <span class="username">{{ user.username }}</span>
-        <a href="/logout" class="btn-outline">Logout</a>
+        {% if can_commander %}
+        <button id="cmd-lock" class="cmd-lock-btn" onclick="toggleCommanderInput()" title="Commander mode">🔒</button>
+        <div id="cmd-panel" class="cmd-panel hidden">
+          <input id="cmd-password" type="password" class="cmd-input" placeholder="Code" maxlength="4"
+                 onkeydown="if(event.key==='Enter')activateCommander()">
+          <button class="cmd-go-btn" onclick="activateCommander()">→</button>
+        </div>
+        <select id="cmd-user-select" class="cmd-select hidden" onchange="switchCommanderUser()">
+        </select>
+        {% endif %}
+        <form action="/logout" method="POST" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-outline">Logout</button></form>
       </div>
     </div>
   </header>
+
+  <!-- Commander Banner -->
+  <div id="cmd-banner" class="cmd-banner hidden">
+    <span id="cmd-banner-text">Viewing: —</span>
+    <div id="cmd-user-actions" class="cmd-user-actions hidden">
+      <button class="btn-sm cmd-edit-btn" onclick="editCommanderUser()">✏️ Edit</button>
+      <button class="btn-sm cmd-delete-btn" onclick="deleteCommanderUser()">🗑️ Delete</button>
+    </div>
+    <button class="btn-sm cmd-exit-btn" onclick="deactivateCommander()">Exit Commander</button>
+  </div>
+
+  <!-- Commander Edit Modal -->
+  <div id="cmd-edit-modal" class="cmd-edit-modal hidden">
+    <div class="cmd-edit-card">
+      <h3>Edit User</h3>
+      <label>Username <input type="text" id="cmd-edit-username"></label>
+      <label>Email <input type="email" id="cmd-edit-email"></label>
+      <label>Phase
+        <select id="cmd-edit-phase">
+          <option value="bulk">Bulk</option>
+          <option value="cut">Cut</option>
+        </select>
+      </label>
+      <label>Weight target (kg) <input type="number" id="cmd-edit-target" step="0.1"></label>
+      <div class="cmd-edit-actions">
+        <button class="btn-primary btn-sm" onclick="saveCommanderUserEdit()">Save</button>
+        <button class="btn-discard btn-sm" onclick="closeEditModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Phase Banner -->
   <div id="phase-banner" class="phase-banner">
@@ -53,6 +94,12 @@
     <button class="btn-outline btn-sm" onclick="toggleSettings()">Cancel</button>
   </div>
 
+  <!-- Weekly Plan Display -->
+  <div id="plan-display" class="plan-display hidden">
+    <h3>Weekly Plan</h3>
+    <pre id="plan-display-text"></pre>
+  </div>
+
   <!-- Summary Bar -->
   <div class="summary-bar">
     <div class="summary-card"><div class="summary-val" id="s-workouts">—</div><div class="summary-lbl">Workouts this week</div></div>
@@ -61,180 +108,368 @@
     <div class="summary-card"><div class="summary-val" id="s-calories">—</div><div class="summary-lbl">Avg daily calories</div></div>
   </div>
 
-  <main>
+  <!-- Page Tabs -->
+  <div class="page-tabs">
+    <button class="page-tab active" onclick="scrollToPage(0)">Workouts</button>
+    <button class="page-tab" onclick="scrollToPage(1)">Weight</button>
+    <button class="page-tab" onclick="scrollToPage(2)">Sleep</button>
+    <button class="page-tab" onclick="scrollToPage(3)">Nutrition</button>
+    <button class="page-tab" onclick="scrollToPage(4)">🏆</button>
+  </div>
 
-    <!-- Charts Grid -->
-    <div class="charts-grid">
+  <!-- Swipeable Pages -->
+  <div class="pages-container" id="pages-container">
+
+    <!-- Page 1: Workouts -->
+    <div class="page" id="page-workouts">
       <div class="chart-card">
         <h3>Workouts by type (last 8 weeks)</h3>
         <div id="hiit-warning" class="hiit-warning hidden">⚠ Low HIIT/Running this week</div>
         <canvas id="chart-workouts"></canvas>
       </div>
+
+      <div class="log-section">
+        <h2>Log Workout</h2>
+        <div id="tab-workout" class="tab-content">
+          <div class="form-row">
+            <label>Type
+              <select id="wo-type" onchange="updateExerciseMode()">
+                <option value="power">Power</option>
+                <option value="hypertrophy">Hypertrophy</option>
+                <option value="hiit">HIIT</option>
+                <option value="run">Run</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>Total duration (min)
+              <input type="number" id="wo-duration" min="1" max="600" placeholder="optional">
+            </label>
+            <label>Date
+              <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input" onclick="this.select()" oninput="autoFormatDate(this)" id="wo-date">
+            </label>
+            <label>Session notes
+              <input type="text" id="wo-notes" placeholder="optional">
+            </label>
+          </div>
+
+          <div class="ex-table-wrap" id="ex-table-wrap">
+            <div class="ex-header" id="ex-header-str">
+              <span class="ex-h-num">#</span>
+              <span class="ex-h-name">Exercise</span>
+              <span class="ex-h-col">Sets</span>
+              <span class="ex-h-col">Reps</span>
+              <span class="ex-h-col">Weight (kg)</span>
+              <span class="ex-h-col">Time</span>
+              <span class="ex-h-col">Rest</span>
+              <span class="ex-h-del"></span>
+            </div>
+            <div class="ex-header hidden" id="ex-header-run">
+              <span class="ex-h-num">#</span>
+              <span class="ex-h-name">Label</span>
+              <span class="ex-h-col">Dist (km)</span>
+              <span class="ex-h-col">Duration</span>
+              <span class="ex-h-col">Avg HR</span>
+              <span class="ex-h-col">Speed (min/km)</span>
+              <span class="ex-h-col">Elev (m)</span>
+              <span class="ex-h-del"></span>
+            </div>
+            <div id="ex-rows"></div>
+            <button type="button" class="btn-add-ex" onclick="addExerciseRow()">+ Add exercise</button>
+          </div>
+
+          <div class="ex-actions">
+            <button type="button" class="btn-primary" onclick="saveWorkout()">Save Workout</button>
+            <button type="button" class="btn-discard" onclick="discardWorkout()">Discard</button>
+          </div>
+          <div id="wo-error" class="wo-error hidden"></div>
+        </div>
+      </div>
+
+      <div class="log-section">
+        <h2>Recent Workouts</h2>
+        <div id="recent-workouts"></div>
+      </div>
+
+      <div class="plan-section">
+        <h2>Weekly Training Plan</h2>
+        <textarea id="weekly-plan" rows="6" placeholder="Write your training plan for this week..."></textarea>
+        <button class="btn-primary btn-sm" onclick="savePlan()">Save Plan</button>
+      </div>
+    </div>
+
+    <!-- Page 2: Weight -->
+    <div class="page" id="page-weight">
       <div class="chart-card">
         <h3>Weight over time</h3>
         <canvas id="chart-weight"></canvas>
       </div>
-      <div class="chart-card">
-        <h3>Sleep hours</h3>
-        <canvas id="chart-sleep"></canvas>
-      </div>
-      <div class="chart-card">
-        <h3>Daily calories</h3>
-        <canvas id="chart-calories"></canvas>
-      </div>
-    </div>
 
-    <!-- Log Forms -->
-    <div class="log-section">
-      <h2>Log Entry</h2>
-      <div class="log-tabs">
-        <button class="tab-btn active" onclick="showTab('workout')">Workout</button>
-        <button class="tab-btn" onclick="showTab('weight')">Weight</button>
-        <button class="tab-btn" onclick="showTab('sleep')">Sleep</button>
-        <button class="tab-btn" onclick="showTab('nutrition')">Nutrition</button>
-      </div>
-
-      <!-- Workout form -->
-      <div id="tab-workout" class="tab-content">
-        <div class="form-row">
-          <label>Type
-            <select id="wo-type" onchange="updateExerciseMode()">
-              <option value="power">Power</option>
-              <option value="hypertrophy">Hypertrophy</option>
-              <option value="hiit">HIIT</option>
-              <option value="run">Run</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
-          <label>Total duration (min)
-            <input type="number" id="wo-duration" min="1" max="600" placeholder="optional">
-          </label>
-          <label>Date
-            <input type="date" id="wo-date">
-          </label>
-          <label>Session notes
-            <input type="text" id="wo-notes" placeholder="optional">
-          </label>
-        </div>
-
-        <div class="ex-table-wrap" id="ex-table-wrap">
-          <div class="ex-header" id="ex-header-str">
-            <span class="ex-h-num">#</span>
-            <span class="ex-h-name">Exercise</span>
-            <span class="ex-h-col">Sets</span>
-            <span class="ex-h-col">Reps</span>
-            <span class="ex-h-col">Weight (kg)</span>
-            <span class="ex-h-col">Time</span>
-            <span class="ex-h-col">Rest</span>
-            <span class="ex-h-del"></span>
-          </div>
-          <div class="ex-header hidden" id="ex-header-run">
-            <span class="ex-h-num">#</span>
-            <span class="ex-h-name">Label</span>
-            <span class="ex-h-col">Dist (km)</span>
-            <span class="ex-h-col">Duration</span>
-            <span class="ex-h-col">Avg HR</span>
-            <span class="ex-h-col">Speed (min/km)</span>
-            <span class="ex-h-col">Elev (m)</span>
-            <span class="ex-h-del"></span>
-          </div>
-          <div id="ex-rows"></div>
-          <button type="button" class="btn-add-ex" onclick="addExerciseRow()">+ Add exercise</button>
-        </div>
-
-        <div class="ex-actions">
-          <button type="button" class="btn-primary" onclick="saveWorkout()">Save Workout</button>
-          <button type="button" class="btn-discard" onclick="discardWorkout()">Discard</button>
-        </div>
-        <div id="wo-error" class="wo-error hidden"></div>
-      </div>
-
-      <!-- Weight form -->
-      <div id="tab-weight" class="tab-content hidden">
+      <div class="log-section">
+        <h2>Log Weight</h2>
         <form onsubmit="logEntry(event, 'weight')">
           <div class="form-row">
             <label>Weight (kg)
               <input type="number" name="value_kg" step="0.1" min="30" max="250" required>
             </label>
             <label>Date
-              <input type="date" name="date" id="date-weight">
+              <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input" onclick="this.select()" oninput="autoFormatDate(this)" name="date" id="date-weight">
             </label>
           </div>
           <button type="submit" class="btn-primary">Log Weight</button>
         </form>
       </div>
+    </div>
 
-      <!-- Sleep form -->
-      <div id="tab-sleep" class="tab-content hidden">
-        <form onsubmit="logEntry(event, 'sleep')">
+    <!-- Page 3: Sleep -->
+    <div class="page" id="page-sleep">
+      <div class="chart-card">
+        <h3>Sleep hours</h3>
+        <canvas id="chart-sleep"></canvas>
+      </div>
+
+      <div class="log-section">
+        <h2>Log Sleep</h2>
+        <form onsubmit="logSleep(event)">
           <div class="form-row">
-            <label>Hours slept
-              <input type="number" name="hours" step="0.5" min="0" max="24" required>
-            </label>
             <label>Bedtime
-              <input type="time" name="bedtime">
+              <input type="text" inputmode="numeric" name="bedtime" id="sleep-bedtime" required placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this); calcSleepHours()">
             </label>
             <label>Wake time
-              <input type="time" name="wake_time">
+              <input type="text" inputmode="numeric" name="wake_time" id="sleep-waketime" required placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this); calcSleepHours()">
             </label>
             <label>Date
-              <input type="date" name="date" id="date-sleep">
+              <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input" onclick="this.select()" oninput="autoFormatDate(this)" name="date" id="date-sleep">
             </label>
           </div>
+          <div id="sleep-calc" class="sleep-calc hidden">Calculated: <strong id="sleep-calc-hours">—</strong> hours</div>
           <button type="submit" class="btn-primary">Log Sleep</button>
         </form>
       </div>
+    </div>
 
-      <!-- Nutrition form -->
-      <div id="tab-nutrition" class="tab-content hidden">
-        <form onsubmit="logEntry(event, 'nutrition')">
+    <!-- Page 4: Calories & Protein -->
+    <div class="page" id="page-calories">
+      <div class="chart-card">
+        <h3>Daily Nutrition</h3>
+        <canvas id="chart-calories"></canvas>
+      </div>
+
+      <div class="chart-card">
+        <h3>Weekly Averages</h3>
+        <canvas id="chart-nutrition-weekly"></canvas>
+      </div>
+
+      <div class="log-section">
+        <h2>Log Nutrition</h2>
+        <form onsubmit="logNutrition(event)">
           <div class="form-row">
-            <label>Calories
-              <input type="number" name="calories" min="0">
-            </label>
-            <label>Protein (g)
-              <input type="number" name="protein" step="0.1" min="0">
-            </label>
-            <label>Carbs (g)
-              <input type="number" name="carbs" step="0.1" min="0">
-            </label>
-            <label>Fat (g)
-              <input type="number" name="fat" step="0.1" min="0">
-            </label>
-            <label>Water (ml)
-              <input type="number" name="water_ml" min="0">
-            </label>
-            <label>Date
-              <input type="date" name="date" id="date-nutrition">
+            <label>Type
+              <select id="nutr-type" onchange="updateNutritionFields()">
+                <option value="">— Select —</option>
+                <option value="high_protein">High Protein</option>
+                <option value="high_carb">High Carb</option>
+                <option value="balanced">Balanced</option>
+                <option value="supplement">Supplement</option>
+              </select>
             </label>
           </div>
-          <button type="submit" class="btn-primary">Log Nutrition</button>
+          <!-- High Protein: protein only -->
+          <div id="nutr-field-high_protein" class="nutr-field hidden">
+            <div class="form-row">
+              <label>Protein (g) <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
+              <label>Date <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
+            </div>
+          </div>
+          <!-- High Carb: carbs only -->
+          <div id="nutr-field-high_carb" class="nutr-field hidden">
+            <div class="form-row">
+              <label>Carbs (g) <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
+              <label>Date <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
+            </div>
+          </div>
+          <!-- Balanced: protein + carbs -->
+          <div id="nutr-field-balanced" class="nutr-field hidden">
+            <div class="form-row">
+              <label>Protein (g) <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
+              <label>Carbs (g) <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
+              <label>Date <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
+            </div>
+          </div>
+          <!-- Supplement: checkboxes to pick which, then fields -->
+          <div id="nutr-field-supplement" class="nutr-field hidden">
+            <div class="form-row supp-checks">
+              <label class="supp-check"><input type="checkbox" id="supp-protein" onchange="updateSuppFields()"> Protein</label>
+              <label class="supp-check"><input type="checkbox" id="supp-creatine" onchange="updateSuppFields()"> Creatine</label>
+              <label class="supp-check"><input type="checkbox" id="supp-carbs" onchange="updateSuppFields()"> Carbs</label>
+            </div>
+            <div class="form-row">
+              <label id="supp-protein-field" class="hidden">Protein (g) <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
+              <label id="supp-creatine-field" class="hidden">Creatine (g) <input type="number" class="nutr-in-creatine" step="0.1" min="0"></label>
+              <label id="supp-carbs-field" class="hidden">Carbs (g) <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
+              <label>Date <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
+            </div>
+          </div>
+          <div id="nutr-submit" class="hidden">
+            <button type="submit" class="btn-primary">Log</button>
+          </div>
         </form>
       </div>
     </div>
 
-    <!-- Recent Workouts -->
-    <div class="log-section">
-      <h2>Recent Workouts</h2>
-      <div id="recent-workouts"></div>
+    <!-- Page 5: Leaderboard (placeholder, filled in Feature 5) -->
+    <div class="page" id="page-leaderboard">
+      <div class="log-section">
+        <h2 id="lb-title">Leaderboard</h2>
+        <div id="lb-content" class="lb-grid"></div>
+      </div>
     </div>
 
-    <!-- Weekly Plan -->
-    <div class="plan-section">
-      <h2>Weekly Training Plan</h2>
-      <textarea id="weekly-plan" rows="6" placeholder="Write your training plan for this week..."></textarea>
-      <button class="btn-primary btn-sm" onclick="savePlan()">Save Plan</button>
-    </div>
-
-  </main>
+  </div>
 
   <div id="toast" class="toast hidden"></div>
 
   <script>
     let appData = {};
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
+    const _origFetch = window.fetch;
+    window.fetch = function(url, opts) {
+      opts = opts || {};
+      if (opts.method && opts.method !== 'GET') {
+        opts.headers = Object.assign({ 'X-CSRFToken': CSRF_TOKEN }, opts.headers || {});
+      }
+      return _origFetch.call(this, url, opts);
+    };
+    let commanderActive = false;
+    let commanderUserId = null;
+    let commanderUsers = [];
+
+    function toggleCommanderInput() {
+      const panel = document.getElementById('cmd-panel');
+      panel.classList.toggle('hidden');
+      if (!panel.classList.contains('hidden')) {
+        document.getElementById('cmd-password').focus();
+      }
+    }
+
+    async function activateCommander() {
+      const pw = document.getElementById('cmd-password').value;
+      const res = await fetch('/commander/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw })
+      });
+      if (res.ok) {
+        commanderActive = true;
+        document.getElementById('cmd-lock').textContent = '🔓';
+        document.getElementById('cmd-panel').classList.add('hidden');
+        document.getElementById('cmd-password').value = '';
+        await loadCommanderUsers();
+        document.getElementById('cmd-user-select').classList.remove('hidden');
+        showToast('Commander mode activated');
+      } else {
+        showToast('Wrong code');
+      }
+    }
+
+    async function deactivateCommander() {
+      await fetch('/commander/deactivate', { method: 'POST' });
+      commanderActive = false;
+      commanderUserId = null;
+      document.getElementById('cmd-lock').textContent = '🔒';
+      document.getElementById('cmd-user-select').classList.add('hidden');
+      document.getElementById('cmd-banner').classList.add('hidden');
+      document.getElementById('cmd-user-actions').classList.add('hidden');
+      showToast('Commander mode deactivated');
+      await loadData();
+    }
+
+    async function loadCommanderUsers() {
+      const res = await fetch('/commander/users');
+      commanderUsers = await res.json();
+      const select = document.getElementById('cmd-user-select');
+      select.innerHTML = '<option value="">— Select user —</option>' +
+        commanderUsers.map(u => '<option value="' + u.id + '">' + esc(u.username) + '</option>').join('');
+    }
+
+    async function switchCommanderUser() {
+      const uid = document.getElementById('cmd-user-select').value;
+      if (!uid) {
+        commanderUserId = null;
+        document.getElementById('cmd-banner').classList.add('hidden');
+        await loadData();
+        return;
+      }
+      commanderUserId = uid;
+      const user = commanderUsers.find(u => u.id == uid);
+      document.getElementById('cmd-banner-text').textContent = 'Viewing: ' + user.username + ' (' + user.email + ')';
+      document.getElementById('cmd-banner').classList.remove('hidden');
+      document.getElementById('cmd-user-actions').classList.remove('hidden');
+      await loadData();
+    }
+
+    async function deleteCommanderUser() {
+      if (!commanderUserId) return;
+      const user = commanderUsers.find(u => u.id == commanderUserId);
+      if (!confirm('Delete user "' + user.username + '" and ALL their data? This cannot be undone.')) return;
+      const res = await fetch('/commander/user/' + commanderUserId, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('User deleted');
+        commanderUserId = null;
+        document.getElementById('cmd-banner').classList.add('hidden');
+        document.getElementById('cmd-user-select').value = '';
+        await loadCommanderUsers();
+        await loadData();
+      } else {
+        const err = await res.json();
+        showToast(err.status || 'Failed to delete');
+      }
+    }
+
+    function editCommanderUser() {
+      if (!commanderUserId) return;
+      const user = commanderUsers.find(u => u.id == commanderUserId);
+      document.getElementById('cmd-edit-username').value = user.username;
+      document.getElementById('cmd-edit-email').value = user.email;
+      document.getElementById('cmd-edit-phase').value = user.phase;
+      document.getElementById('cmd-edit-target').value = user.weight_target_kg;
+      document.getElementById('cmd-edit-modal').classList.remove('hidden');
+    }
+
+    function closeEditModal() {
+      document.getElementById('cmd-edit-modal').classList.add('hidden');
+    }
+
+    async function saveCommanderUserEdit() {
+      const data = {
+        username: document.getElementById('cmd-edit-username').value,
+        email: document.getElementById('cmd-edit-email').value,
+        phase: document.getElementById('cmd-edit-phase').value,
+        weight_target_kg: parseFloat(document.getElementById('cmd-edit-target').value)
+      };
+      const res = await fetch('/commander/user/' + commanderUserId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        closeEditModal();
+        showToast('User updated');
+        await loadCommanderUsers();
+        const user = commanderUsers.find(u => u.id == commanderUserId);
+        if (user) {
+          document.getElementById('cmd-banner-text').textContent = 'Viewing: ' + data.username + ' (' + data.email + ')';
+        }
+        await loadData();
+      } else {
+        showToast('Failed to update');
+      }
+    }
 
     async function loadData() {
-      const res = await fetch('/data');
+      let url = '/data';
+      if (commanderActive && commanderUserId) url += '?user_id=' + commanderUserId;
+      const res = await fetch(url);
       appData = await res.json();
       renderAll();
     }
@@ -247,7 +482,17 @@
       renderSleepChart();
       renderCaloriesChart();
       renderRecentWorkouts();
+      leaderboardStale = true;
+      setTimeout(resizeContainer, 50);
       document.getElementById('weekly-plan').value = appData.weekly_plan || '';
+      const planText = (appData.weekly_plan || '').trim();
+      const planDisplay = document.getElementById('plan-display');
+      if (planText) {
+        document.getElementById('plan-display-text').textContent = planText;
+        planDisplay.classList.remove('hidden');
+      } else {
+        planDisplay.classList.add('hidden');
+      }
     }
 
     function renderPhaseBanner() {
@@ -319,93 +564,386 @@
 
     function renderWorkoutChart() {
       const ctx = document.getElementById('chart-workouts').getContext('2d');
-      if (charts.workouts) charts.workouts.destroy();
-
       const weeks = getLast8Weeks();
       const types = ['power', 'hypertrophy', 'hiit', 'run', 'other'];
-      const colors = ['#1a6fc4', '#4a9edd', '#f0a500', '#2ecc71', '#95a5a6'];
+      const colors = ['#e74c3c', '#4a9edd', '#8a8a8a', '#2ecc71', '#95a5a6'];
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      const labels = [];
+      weeks.forEach(w => {
+        for (let d = 0; d < 7; d++) {
+          const dt = new Date(w.start);
+          dt.setDate(dt.getDate() + ((d - dt.getDay() + 7) % 7));
+          const sunBased = new Date(w.start);
+          sunBased.setDate(sunBased.getDate() - sunBased.getDay() + d);
+          labels.push(d === 0 ? w.label + ' ' + dayNames[d] : dayNames[d]);
+        }
+      });
+
+      const allLabels = [];
+      weeks.forEach((w, wi) => {
+        const wStart = new Date(w.start);
+        const sunDate = new Date(wStart);
+        sunDate.setDate(wStart.getDate() - wStart.getDay());
+        for (let d = 0; d < 7; d++) {
+          const dt = new Date(sunDate);
+          dt.setDate(sunDate.getDate() + d);
+          allLabels.push({
+            label: d === 0 ? w.label : '',
+            date: dt.toISOString().slice(0, 10),
+            dayName: dayNames[d],
+            weekLabel: w.label,
+            isSpacer: false
+          });
+        }
+        if (wi < weeks.length - 1) {
+          allLabels.push({ label: '', date: '', dayName: '', weekLabel: '', isSpacer: true });
+        }
+      });
+
+      const woLookup = {};
+      appData.workouts.forEach(w => {
+        const key = w.date + '|' + w.type;
+        if (!woLookup[key]) woLookup[key] = [];
+        woLookup[key].push(w.id);
+      });
 
       const datasets = types.map((t, i) => ({
         label: t.charAt(0).toUpperCase() + t.slice(1),
-        data: weeks.map(w => appData.workouts.filter(e => e.date >= w.start && e.date <= w.end && e.type === t).length),
+        data: allLabels.map(slot => {
+          if (slot.isSpacer) return null;
+          return (woLookup[slot.date + '|' + t] || []).length;
+        }),
+        _ids: allLabels.map(slot => {
+          if (slot.isSpacer) return [];
+          return woLookup[slot.date + '|' + t] || [];
+        }),
         backgroundColor: colors[i],
+        borderColor: 'rgba(255,255,255,0.6)',
+        borderWidth: 1,
+        stack: 'daily',
       }));
 
-      charts.workouts = new Chart(ctx, {
-        type: 'bar',
-        data: { labels: weeks.map(w => w.label), datasets },
-        options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true, ticks: { stepSize: 1 } } } }
+      const chartLabels = allLabels.map((slot, i) => {
+        if (slot.dayName === 'Sun') return slot.weekLabel;
+        return '';
       });
+      if (charts.workouts) {
+        charts.workouts.data.labels = chartLabels;
+        charts.workouts.data.datasets = datasets;
+        charts.workouts.options.plugins.tooltip.callbacks.title = (items) => {
+          const idx = items[0].dataIndex;
+          const slot = allLabels[idx];
+          return slot.weekLabel + ' — ' + slot.dayName + ' (' + fmtDate(slot.date) + ')';
+        };
+        charts.workouts.options.scales.x.ticks.callback = function(val, idx) {
+          const slot = allLabels[idx];
+          if (slot.isSpacer) return '';
+          if (slot.dayName === 'Sun') return slot.weekLabel;
+          return '';
+        };
+        charts.workouts.update();
+      } else {
+        charts.workouts = new Chart(ctx, {
+          type: 'bar',
+          data: { labels: chartLabels, datasets },
+          options: {
+            responsive: true,
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  title: (items) => {
+                    const idx = items[0].dataIndex;
+                    const slot = allLabels[idx];
+                    return slot.weekLabel + ' — ' + slot.dayName + ' (' + fmtDate(slot.date) + ')';
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                stacked: true,
+                grid: { display: false },
+                ticks: {
+                  autoSkip: false,
+                  callback: function(val, idx) {
+                    const slot = allLabels[idx];
+                    if (slot.isSpacer) return '';
+                    if (slot.dayName === 'Sun') return slot.weekLabel;
+                    return '';
+                  },
+                  maxRotation: 0
+                }
+              },
+              y: {
+                stacked: true,
+                beginAtZero: true,
+                max: 5,
+                ticks: { stepSize: 1 }
+              }
+            }
+          }
+        });
+        setupLongPress(document.getElementById('chart-workouts'), charts.workouts, 'workout');
+      }
     }
 
     function renderWeightChart() {
       const ctx = document.getElementById('chart-weight').getContext('2d');
-      if (charts.weight) charts.weight.destroy();
       const sorted = [...appData.weights].sort((a, b) => a.date.localeCompare(b.date));
       const target = appData.weight_target_kg;
-      charts.weight = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: sorted.map(w => w.date),
-          datasets: [
-            { label: 'Weight (kg)', data: sorted.map(w => w.value_kg), borderColor: '#1a6fc4', backgroundColor: 'rgba(26,111,196,0.1)', tension: 0.3, fill: true },
-            { label: `Target (${target} kg)`, data: sorted.map(() => target), borderColor: '#f0a500', borderDash: [6, 3], pointRadius: 0 }
-          ]
-        },
-        options: { responsive: true }
-      });
+      const labels = sorted.map(w => fmtDate(w.date));
+      const newDatasets = [
+        { label: 'Weight (kg)', data: sorted.map(w => w.value_kg), borderColor: '#1a6fc4', backgroundColor: 'rgba(26,111,196,0.1)', tension: 0.3, fill: true, _ids: sorted.map(w => w.id), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: `Target (${target} kg)`, data: sorted.map(() => target), borderColor: '#8a8a8a', borderDash: [6, 3], pointRadius: 0 }
+      ];
+      if (charts.weight) {
+        charts.weight.data.labels = labels;
+        charts.weight.data.datasets = newDatasets;
+        charts.weight.update();
+      } else {
+        charts.weight = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets: newDatasets },
+          options: { responsive: true }
+        });
+        setupLongPress(document.getElementById('chart-weight'), charts.weight, 'weight');
+      }
     }
 
     function renderSleepChart() {
       const ctx = document.getElementById('chart-sleep').getContext('2d');
-      if (charts.sleep) charts.sleep.destroy();
-      const sorted = [...appData.sleeps].sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
-      charts.sleep = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: sorted.map(s => s.date),
-          datasets: [
-            { label: 'Hours slept', data: sorted.map(s => s.hours), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0.3, fill: true },
-            { label: '8h target', data: sorted.map(() => 8), borderColor: '#2ecc71', borderDash: [6, 3], pointRadius: 0 }
-          ]
-        },
-        options: { responsive: true }
+      const sorted = [...appData.sleeps].sort((a, b) => a.date.localeCompare(b.date));
+      const sleepMap = {};
+      sorted.forEach(s => {
+        if (!sleepMap[s.date]) sleepMap[s.date] = { hours: 0, id: s.id };
+        else sleepMap[s.date].hours += s.hours;
+        sleepMap[s.date].hours = s.hours;
+        sleepMap[s.date].id = s.id;
       });
+      const loggedDays = Object.keys(sleepMap).sort();
+      if (!loggedDays.length) {
+        if (!charts.sleep) {
+          charts.sleep = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true } });
+        } else {
+          charts.sleep.data.labels = [];
+          charts.sleep.data.datasets = [];
+          charts.sleep.update();
+        }
+        return;
+      }
+      const today = new Date();
+      const cutoff = new Date(today);
+      cutoff.setDate(today.getDate() - 30);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      const last = new Date(loggedDays[loggedDays.length - 1]);
+      const start = new Date(Math.max(new Date(loggedDays[0]), cutoff));
+      const days = [];
+      for (let d = new Date(start); d <= last; d.setDate(d.getDate() + 1)) {
+        days.push(d.toISOString().slice(0, 10));
+      }
+      const labels = days.map(d => fmtDate(d));
+      const newDatasets = [
+        { label: 'Hours slept', data: days.map(d => sleepMap[d] ? sleepMap[d].hours : 0), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0, fill: true, _ids: days.map(d => sleepMap[d] ? sleepMap[d].id : null), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: '8h target', data: days.map(() => 8), borderColor: '#2ecc71', borderDash: [6, 3], pointRadius: 0 }
+      ];
+      if (charts.sleep) {
+        charts.sleep.data.labels = labels;
+        charts.sleep.data.datasets = newDatasets;
+        charts.sleep.update();
+      } else {
+        charts.sleep = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets: newDatasets },
+          options: { responsive: true }
+        });
+        setupLongPress(document.getElementById('chart-sleep'), charts.sleep, 'sleep');
+      }
     }
 
     function renderCaloriesChart() {
       const ctx = document.getElementById('chart-calories').getContext('2d');
-      if (charts.calories) charts.calories.destroy();
-      const sorted = [...appData.nutritions].sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
-      const calTarget = appData.phase === 'bulk' ? 3000 : 2200;
-      charts.calories = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: sorted.map(n => n.date),
-          datasets: [
-            { label: 'Calories', data: sorted.map(n => n.calories), borderColor: '#f0a500', backgroundColor: 'rgba(240,165,0,0.1)', tension: 0.3, fill: true },
-            { label: `${appData.phase === 'bulk' ? 'Bulk' : 'Cut'} target (${calTarget})`, data: sorted.map(() => calTarget), borderColor: '#e74c3c', borderDash: [6, 3], pointRadius: 0 }
-          ]
-        },
-        options: { responsive: true }
+      const sorted = [...appData.nutritions].sort((a, b) => a.date.localeCompare(b.date));
+      const dailyMap = {};
+      sorted.forEach(n => {
+        if (!dailyMap[n.date]) dailyMap[n.date] = { carbs: 0, protein: 0, creatine: 0, ids: [] };
+        const d = dailyMap[n.date];
+        d.carbs += (n.carbs || 0);
+        d.protein += (n.protein || 0);
+        d.creatine += (n.creatine || 0);
+        d.ids.push(n.id);
       });
+      const loggedDays = Object.keys(dailyMap).sort();
+      if (!loggedDays.length) return;
+      const today = new Date();
+      const cutoff = new Date(today);
+      cutoff.setDate(today.getDate() - 30);
+      const last = new Date(loggedDays[loggedDays.length - 1]);
+      const start = new Date(Math.max(new Date(loggedDays[0]), cutoff));
+      const days = [];
+      for (let d = new Date(start); d <= last; d.setDate(d.getDate() + 1)) {
+        days.push(d.toISOString().slice(0, 10));
+      }
+      const contDays = days.map(d => dailyMap[d] || { carbs: 0, protein: 0, creatine: 0, ids: [] });
+      const contLabels = days.map(d => fmtDate(d));
+      const newDatasets = [
+        { label: 'Carbs (g)', data: contDays.map(d => d.carbs), borderColor: '#8a8a8a', backgroundColor: 'rgba(138,138,138,0.1)', tension: 0, fill: false, yAxisID: 'yCarbs', _ids: contDays.map(d => d.ids), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: 'Protein (g)', data: contDays.map(d => d.protein), borderColor: '#1a6fc4', backgroundColor: 'rgba(26,111,196,0.1)', tension: 0, fill: false, yAxisID: 'yProtein', _ids: contDays.map(d => d.ids), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: 'Creatine (g)', data: contDays.map(d => d.creatine), borderColor: '#2ecc71', backgroundColor: 'rgba(46,204,113,0.1)', tension: 0, fill: false, yAxisID: 'yCreatine', _ids: contDays.map(d => d.ids), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 }
+      ];
+      if (charts.calories) {
+        charts.calories.data.labels = contLabels;
+        charts.calories.data.datasets = newDatasets;
+        charts.calories.update();
+      } else {
+        charts.calories = new Chart(ctx, {
+          type: 'line',
+          data: { labels: contLabels, datasets: newDatasets },
+          options: {
+            responsive: true,
+            scales: {
+              yCarbs: { type: 'linear', position: 'left', min: 0, max: 5000, title: { display: true, text: 'Carbs (g)', color: '#8a8a8a' }, ticks: { color: '#8a8a8a' } },
+              yProtein: { type: 'linear', position: 'right', min: 0, max: 250, title: { display: true, text: 'Protein (g)', color: '#1a6fc4' }, ticks: { color: '#1a6fc4' }, grid: { drawOnChartArea: false } },
+              yCreatine: { type: 'linear', position: 'right', min: 0, max: 30, title: { display: true, text: 'Creatine (g)', color: '#2ecc71' }, ticks: { color: '#2ecc71' }, grid: { drawOnChartArea: false } }
+            }
+          }
+        });
+        setupLongPress(document.getElementById('chart-calories'), charts.calories, 'nutrition');
+      }
+      renderNutritionWeeklyChart(dailyMap);
+    }
+
+    function renderNutritionWeeklyChart(dailyMap) {
+      const ctx = document.getElementById('chart-nutrition-weekly').getContext('2d');
+      if (!Object.keys(dailyMap).length) return;
+
+      const today = new Date();
+      const weekMap = {};
+      Object.keys(dailyMap).sort().forEach(dateStr => {
+        const d = new Date(dateStr);
+        const day = d.getDay();
+        const sun = new Date(d);
+        sun.setDate(d.getDate() - day);
+        const sat = new Date(sun);
+        sat.setDate(sun.getDate() + 6);
+        if (today <= sat) return;
+        const weekKey = sun.toISOString().slice(0, 10);
+        if (!weekMap[weekKey]) weekMap[weekKey] = { carbs: [], protein: [], creatine: [] };
+        weekMap[weekKey].carbs.push(dailyMap[dateStr].carbs);
+        weekMap[weekKey].protein.push(dailyMap[dateStr].protein);
+        weekMap[weekKey].creatine.push(dailyMap[dateStr].creatine);
+      });
+
+      const weeks = Object.keys(weekMap).sort().slice(-12);
+      if (!weeks.length) return;
+      const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 10) / 10 : 0;
+      const weekLabels = weeks.map(w => {
+        const s = new Date(w);
+        const e = new Date(s);
+        e.setDate(s.getDate() + 6);
+        return fmtDate(w.slice(0, 10)) + '–' + fmtDate(e.toISOString().slice(0, 10));
+      });
+
+      const wkDatasets = [
+        { label: 'Avg Carbs (g)', data: weeks.map(w => avg(weekMap[w].carbs)), borderColor: '#8a8a8a', tension: 0, fill: false, yAxisID: 'yCarbs', pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: 'Avg Protein (g)', data: weeks.map(w => avg(weekMap[w].protein)), borderColor: '#1a6fc4', tension: 0, fill: false, yAxisID: 'yProtein', pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: 'Avg Creatine (g)', data: weeks.map(w => avg(weekMap[w].creatine)), borderColor: '#2ecc71', tension: 0, fill: false, yAxisID: 'yCreatine', pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 }
+      ];
+      if (charts.nutritionWeekly) {
+        charts.nutritionWeekly.data.labels = weekLabels;
+        charts.nutritionWeekly.data.datasets = wkDatasets;
+        charts.nutritionWeekly.update();
+      } else {
+        charts.nutritionWeekly = new Chart(ctx, {
+          type: 'line',
+          data: { labels: weekLabels, datasets: wkDatasets },
+          options: {
+            responsive: true,
+            scales: {
+              yCarbs: { type: 'linear', position: 'left', min: 0, max: 25000, title: { display: true, text: 'Carbs (g)', color: '#8a8a8a' }, ticks: { color: '#8a8a8a' } },
+              yProtein: { type: 'linear', position: 'right', min: 0, max: 1250, title: { display: true, text: 'Protein (g)', color: '#1a6fc4' }, ticks: { color: '#1a6fc4' }, grid: { drawOnChartArea: false } },
+              yCreatine: { type: 'linear', position: 'right', min: 0, max: 150, title: { display: true, text: 'Creatine (g)', color: '#2ecc71' }, ticks: { color: '#2ecc71' }, grid: { drawOnChartArea: false } }
+            }
+          }
+        });
+      }
+    }
+
+    function getISOWeekNumber(d) {
+      const date = new Date(d.getTime());
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+      const week1 = new Date(date.getFullYear(), 0, 4);
+      return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
     }
 
     function getLast8Weeks() {
       const weeks = [];
       const today = new Date();
-      for (let i = 7; i >= 0; i--) {
-        const end = new Date(today);
-        end.setDate(today.getDate() - today.getDay() + 1 - i * 7 + 6);
-        const start = new Date(end);
-        start.setDate(end.getDate() - 6);
+      const currentMonday = new Date(today);
+      currentMonday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+      for (let i = -5; i <= 2; i++) {
+        const start = new Date(currentMonday);
+        start.setDate(currentMonday.getDate() + i * 7);
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        const wn = getISOWeekNumber(start);
         weeks.push({
           start: start.toISOString().slice(0, 10),
           end: end.toISOString().slice(0, 10),
-          label: `W${8 - i}`
+          label: 'W' + wn
         });
       }
       return weeks;
+    }
+
+    function fmtDate(d) {
+      const [y, m, dd] = d.split('-');
+      return dd + '/' + m + '/' + y.slice(2);
+    }
+
+    function autoFormatDate(el) {
+      let v = el.value.replace(/[^\d]/g, '');
+      if (v.length > 2) v = v.slice(0, 2) + '/' + v.slice(2);
+      if (v.length > 5) v = v.slice(0, 5) + '/' + v.slice(5, 7);
+      el.value = v;
+    }
+
+    function autoFormatTime(el) {
+      let v = el.value.replace(/[^\d]/g, '');
+      if (v.length === 1 && parseInt(v) > 2) v = '0' + v;
+      if (v.length >= 2) {
+        let hh = parseInt(v.slice(0, 2));
+        if (hh > 23) hh = 23;
+        v = String(hh).padStart(2, '0') + v.slice(2);
+      }
+      if (v.length === 3 && parseInt(v[2]) > 6) v = v.slice(0, 2) + '0' + v[2];
+      if (v.length >= 4) {
+        let mm = parseInt(v.slice(2, 4));
+        if (mm > 60) mm = 60;
+        v = v.slice(0, 2) + String(mm).padStart(2, '0') + v.slice(4);
+      }
+      if (v.length > 2) v = v.slice(0, 2) + ':' + v.slice(2, 4);
+      if (v.length > 5) v = v.slice(0, 5);
+      el.value = v;
+    }
+
+    function parseDateInput(val) {
+      if (!val) return undefined;
+      const parts = val.split('/');
+      if (parts.length !== 3) return undefined;
+      const [dd, mm, yy] = parts;
+      if (!dd || !mm || !yy) return undefined;
+      const year = '20' + yy.padStart(2, '0');
+      return year + '-' + mm.padStart(2, '0') + '-' + dd.padStart(2, '0');
+    }
+
+    function todayFormatted() {
+      const t = new Date();
+      const dd = String(t.getDate()).padStart(2, '0');
+      const mm = String(t.getMonth() + 1).padStart(2, '0');
+      const yy = String(t.getFullYear()).slice(2);
+      return dd + '/' + mm + '/' + yy;
     }
 
     function secsToMMSS(s) {
@@ -445,14 +983,14 @@
             detail = parts.join(' · ');
           }
           return '<div class="wo-ex-row"><span class="wo-ex-num">' + (i + 1) + '</span>' +
-                 '<span class="wo-ex-name">' + ex.name + '</span>' +
-                 (detail ? '<span class="wo-ex-detail">' + detail + '</span>' : '') + '</div>';
+                 '<span class="wo-ex-name">' + esc(ex.name) + '</span>' +
+                 (detail ? '<span class="wo-ex-detail">' + esc(detail) + '</span>' : '') + '</div>';
         }).join('');
-        const noteStr = w.notes ? '<span class="wo-hist-note">' + w.notes + '</span>' : '';
+        const noteStr = w.notes ? '<span class="wo-hist-note">' + esc(w.notes) + '</span>' : '';
         return '<div class="wo-hist-item" id="wo-' + w.id + '">' +
           '<div class="wo-hist-header">' +
             '<div class="wo-hist-meta">' +
-              '<span class="wo-hist-type wo-type-' + w.type + '">' + typeLabel + '</span>' +
+              '<span class="wo-hist-type wo-type-' + esc(w.type) + '">' + esc(typeLabel) + '</span>' +
               '<span class="wo-hist-date">' + w.date + '</span>' +
               (dur ? '<span class="wo-hist-dur">' + dur + '</span>' : '') +
               noteStr +
@@ -462,6 +1000,29 @@
           (exRows ? '<div class="wo-ex-list">' + exRows + '</div>' : '') +
         '</div>';
       }).join('');
+    }
+
+    let leaderboardStale = true;
+    async function loadLeaderboard() {
+      try {
+        const resp = await fetch('/leaderboard');
+        const data = await resp.json();
+        document.getElementById('lb-title').textContent = 'Leaderboard — ' + data.month;
+
+        const medals = ['🥇', '🥈', '🥉'];
+        const catIcons = ['👑', '🌪️', '🏗️', '😴', '⚙️'];
+        const grid = document.getElementById('lb-content');
+        grid.innerHTML = data.categories.map((cat, ci) => {
+          const rows = cat.ranking.map((r, i) => {
+            const medal = i < 3 ? '<span class="lb-medal">' + medals[i] + '</span>' : '<span class="lb-rank">' + (i + 1) + '</span>';
+            return '<li>' + medal + '<span class="lb-name">' + esc(r.username) + '</span><span class="lb-val">' + r.value + '</span></li>';
+          }).join('');
+          return '<div class="lb-card"><h3>' + catIcons[ci] + ' ' + cat.name + '</h3><p class="lb-sub">' + cat.subtitle + '</p>' +
+            (rows ? '<ol>' + rows + '</ol>' : '<p class="lb-empty">No data yet</p>') + '</div>';
+        }).join('');
+      } catch (e) {
+        console.error('Leaderboard load failed:', e);
+      }
     }
 
     async function deleteWorkout(id) {
@@ -476,17 +1037,65 @@
       }
     }
 
-    function showTab(name) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-      document.getElementById('tab-' + name).classList.remove('hidden');
-      event.target.classList.add('active');
+    function scrollToPage(index) {
+      const container = document.getElementById('pages-container');
+      container.scrollTo({ left: index * container.clientWidth, behavior: 'smooth' });
     }
+
+    let activePageIndex = 0;
+
+    function updateActiveTab() {
+      const container = document.getElementById('pages-container');
+      const index = Math.round(container.scrollLeft / container.clientWidth);
+      activePageIndex = index;
+      document.querySelectorAll('.page-tab').forEach((tab, i) => {
+        tab.classList.toggle('active', i === index);
+      });
+      if (index === 4 && leaderboardStale) {
+        leaderboardStale = false;
+        loadLeaderboard();
+      }
+      resizeContainer();
+    }
+
+    function resizeContainer() {
+      const container = document.getElementById('pages-container');
+      const pages = container.querySelectorAll('.page');
+      if (pages[activePageIndex]) {
+        container.style.height = pages[activePageIndex].scrollHeight + 'px';
+      }
+    }
+
+    let _scrollRaf = null;
+    function onScrollThrottled() {
+      if (_scrollRaf) return;
+      _scrollRaf = requestAnimationFrame(() => { _scrollRaf = null; updateActiveTab(); });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const container = document.getElementById('pages-container');
+      container.addEventListener('scroll', onScrollThrottled);
+
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
+            Object.values(charts).forEach(c => c && c.resize());
+          }
+        });
+      }, { root: container, threshold: 0.5 });
+
+      document.querySelectorAll('.page').forEach(page => observer.observe(page));
+
+      const ro = new ResizeObserver(() => resizeContainer());
+      document.querySelectorAll('.page').forEach(page => ro.observe(page));
+      resizeContainer();
+    });
 
     async function logEntry(e, metric) {
       e.preventDefault();
       const form = e.target;
       const data = Object.fromEntries(new FormData(form).entries());
+      if (data.date) data.date = parseDateInput(data.date);
       await fetch('/log/' + metric, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -495,6 +1104,88 @@
       form.reset();
       setDefaultDates();
       showToast('Logged!');
+      await loadData();
+    }
+
+    function updateNutritionFields() {
+      const type = document.getElementById('nutr-type').value;
+      document.querySelectorAll('.nutr-field').forEach(el => el.classList.add('hidden'));
+      document.getElementById('nutr-submit').classList.toggle('hidden', !type);
+      if (type) {
+        document.getElementById('nutr-field-' + type).classList.remove('hidden');
+        setDefaultDates();
+      }
+    }
+
+    function updateSuppFields() {
+      document.getElementById('supp-protein-field').classList.toggle('hidden', !document.getElementById('supp-protein').checked);
+      document.getElementById('supp-creatine-field').classList.toggle('hidden', !document.getElementById('supp-creatine').checked);
+      document.getElementById('supp-carbs-field').classList.toggle('hidden', !document.getElementById('supp-carbs').checked);
+    }
+
+    async function logNutrition(e) {
+      e.preventDefault();
+      const type = document.getElementById('nutr-type').value;
+      if (!type) return;
+      const activeField = document.getElementById('nutr-field-' + type);
+      const data = {};
+      const protIn = activeField.querySelector('.nutr-in-protein');
+      const carbIn = activeField.querySelector('.nutr-in-carbs');
+      const creatIn = activeField.querySelector('.nutr-in-creatine');
+      const dateIn = activeField.querySelector('.nutr-in-date');
+      if (protIn && protIn.value && !protIn.closest('.hidden')) data.protein = parseFloat(protIn.value);
+      if (carbIn && carbIn.value && !carbIn.closest('.hidden')) data.carbs = parseFloat(carbIn.value);
+      if (creatIn && creatIn.value && !creatIn.closest('.hidden')) data.creatine = parseFloat(creatIn.value);
+      data.date = (dateIn && dateIn.value) ? parseDateInput(dateIn.value) : new Date().toISOString().slice(0, 10);
+      await fetch('/log/nutrition', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      e.target.reset();
+      document.querySelectorAll('.nutr-field').forEach(el => el.classList.add('hidden'));
+      document.getElementById('nutr-submit').classList.add('hidden');
+      updateSuppFields();
+      setDefaultDates();
+      showToast('Nutrition logged!');
+      await loadData();
+    }
+
+    function calcSleepHours() {
+      const bed = document.getElementById('sleep-bedtime').value;
+      const wake = document.getElementById('sleep-waketime').value;
+      if (!bed || !wake) return;
+      const [bh, bm] = bed.split(':').map(Number);
+      const [wh, wm] = wake.split(':').map(Number);
+      let bedMins = bh * 60 + bm;
+      let wakeMins = wh * 60 + wm;
+      if (wakeMins <= bedMins) wakeMins += 24 * 60;
+      const hours = ((wakeMins - bedMins) / 60).toFixed(1);
+      document.getElementById('sleep-calc-hours').textContent = hours;
+      document.getElementById('sleep-calc').classList.remove('hidden');
+    }
+
+    async function logSleep(e) {
+      e.preventDefault();
+      const bed = document.getElementById('sleep-bedtime').value;
+      const wake = document.getElementById('sleep-waketime').value;
+      if (!bed || !wake) { showToast('Please enter bedtime and wake time'); return; }
+      const [bh, bm] = bed.split(':').map(Number);
+      const [wh, wm] = wake.split(':').map(Number);
+      let bedMins = bh * 60 + bm;
+      let wakeMins = wh * 60 + wm;
+      if (wakeMins <= bedMins) wakeMins += 24 * 60;
+      const hours = parseFloat(((wakeMins - bedMins) / 60).toFixed(1));
+      const dateVal = parseDateInput(document.getElementById('date-sleep').value);
+      await fetch('/log/sleep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hours, bedtime: bed, wake_time: wake, date: dateVal || undefined })
+      });
+      e.target.reset();
+      document.getElementById('sleep-calc').classList.add('hidden');
+      setDefaultDates();
+      showToast('Sleep logged! (' + hours + 'h)');
       await loadData();
     }
 
@@ -533,17 +1224,491 @@
     }
 
     function setDefaultDates() {
-      const today = new Date().toISOString().slice(0, 10);
-      ['weight', 'sleep', 'nutrition'].forEach(m => {
+      const today = todayFormatted();
+      ['weight', 'sleep'].forEach(m => {
         const el = document.getElementById('date-' + m);
         if (el) el.value = today;
       });
+      document.querySelectorAll('.nutr-in-date').forEach(el => el.value = today);
       const woDate = document.getElementById('wo-date');
       if (woDate && !woDate.value) woDate.value = today;
     }
 
+    // === Chart point actions (click/tap → Delete / Edit / View) ===
+    let activePopup = null;
+
+    function setupLongPress(canvas, chart, entryType) {
+      canvas.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removePopup();
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const elements = chart.getElementsAtEventForMode(
+          { x, y, native: e }, 'nearest', { intersect: false }, false
+        );
+        if (!elements.length) return;
+        const el = elements[0];
+        const ds = chart.data.datasets[el.datasetIndex];
+        if (!ds._ids) return;
+        const raw = ds._ids[el.index];
+        if (!raw || (Array.isArray(raw) && raw.length === 0)) return;
+
+        const ids = Array.isArray(raw) ? raw : [raw];
+        const meta = chart.getDatasetMeta(el.datasetIndex);
+        const point = meta.data[el.index];
+        const absX = rect.left + point.x + window.scrollX;
+        const absY = rect.top + point.y + window.scrollY;
+
+        const clickedLabel = ds.label || null;
+
+        if (entryType === 'nutrition') {
+          showActionPopup(absX, absY, ids, entryType, clickedLabel);
+        } else if (ids.length === 1) {
+          showActionPopup(absX, absY, ids[0], entryType);
+        } else {
+          showPickerPopup(absX, absY, ids, entryType);
+        }
+      });
+    }
+
+    document.addEventListener('click', () => { removePopup(); });
+
+    function showPickerPopup(x, y, ids, entryType) {
+      removePopup();
+      const wrap = document.createElement('div');
+      wrap.className = 'chart-popup';
+      wrap.style.left = x + 'px';
+      wrap.style.top = y + 'px';
+      ids.forEach((id, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'chart-popup-item';
+        btn.textContent = entryType.charAt(0).toUpperCase() + entryType.slice(1) + ' #' + (i + 1);
+        btn.onclick = (e) => { e.stopPropagation(); removePopup(); showActionPopup(x, y, id, entryType); };
+        wrap.appendChild(btn);
+      });
+      document.body.appendChild(wrap);
+      activePopup = wrap;
+    }
+
+    function showActionPopup(x, y, id, entryType, nutrLabel) {
+      removePopup();
+      const wrap = document.createElement('div');
+      wrap.className = 'chart-popup';
+      wrap.style.left = x + 'px';
+      wrap.style.top = y + 'px';
+
+      const btnView = document.createElement('button');
+      btnView.className = 'chart-popup-item popup-view';
+      btnView.textContent = 'View';
+      btnView.onclick = (e) => { e.stopPropagation(); removePopup(); openViewModal(id, entryType, x, y, nutrLabel); };
+
+      const btnEdit = document.createElement('button');
+      btnEdit.className = 'chart-popup-item popup-edit';
+      btnEdit.textContent = 'Edit';
+      btnEdit.onclick = (e) => { e.stopPropagation(); removePopup(); openEditModal(id, entryType, x, y, nutrLabel); };
+
+      const btnDel = document.createElement('button');
+      btnDel.className = 'chart-popup-item popup-delete';
+      btnDel.textContent = '✕';
+      btnDel.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this entry?')) return;
+        removePopup();
+        if (Array.isArray(id)) {
+          await Promise.all(id.map(eid => fetch('/delete/' + entryType + '/' + eid, { method: 'DELETE' })));
+          showToast('Deleted!'); await loadData();
+        } else {
+          const res = await fetch('/delete/' + entryType + '/' + id, { method: 'DELETE' });
+          if (res.ok) { showToast('Deleted!'); await loadData(); }
+          else showToast('Could not delete.');
+        }
+      };
+
+      wrap.appendChild(btnView);
+      wrap.appendChild(btnEdit);
+      wrap.appendChild(btnDel);
+      document.body.appendChild(wrap);
+      activePopup = wrap;
+    }
+
+    function removePopup() {
+      if (activePopup) { activePopup.remove(); activePopup = null; }
+    }
+
+    function positionModalNearClick(backdrop, clickX, clickY) {
+      const modal = backdrop.querySelector('.entry-modal');
+      if (!modal) return;
+      backdrop.style.position = 'absolute';
+      backdrop.style.inset = '0';
+      backdrop.style.height = document.documentElement.scrollHeight + 'px';
+      backdrop.style.display = 'block';
+      backdrop.style.padding = '0';
+      modal.style.position = 'absolute';
+      modal.style.margin = '0';
+      modal.style.maxWidth = '340px';
+      requestAnimationFrame(() => {
+        const mw = modal.offsetWidth;
+        const mh = modal.offsetHeight;
+        const vw = document.documentElement.clientWidth;
+        let left = clickX - mw / 2;
+        let top = clickY - mh - 40;
+        if (top < window.scrollY + 10) top = clickY + 40;
+        if (left < 10) left = 10;
+        if (left + mw > vw - 10) left = vw - mw - 10;
+        modal.style.left = left + 'px';
+        modal.style.top = top + 'px';
+      });
+    }
+
+    function findEntry(id, entryType) {
+      const arr = entryType === 'workout' ? appData.workouts
+        : entryType === 'weight' ? appData.weights
+        : entryType === 'sleep' ? appData.sleeps
+        : appData.nutritions;
+      return arr.find(e => e.id === id);
+    }
+
+    function openViewModal(id, entryType, clickX, clickY, nutrLabel) {
+      if (entryType === 'nutrition' && nutrLabel && Array.isArray(id)) {
+        return openNutritionSubtotalView(id, nutrLabel, clickX, clickY);
+      }
+      const entry = findEntry(id, entryType);
+      if (!entry) return;
+      let html = '<div class="entry-modal-backdrop" onclick="this.remove()"><div class="entry-modal" onclick="event.stopPropagation()">';
+      html += '<button class="entry-modal-close" onclick="this.closest(\'.entry-modal-backdrop\').remove()">✕</button>';
+      html += '<h3>View ' + entryType.charAt(0).toUpperCase() + entryType.slice(1) + '</h3>';
+      html += '<div class="entry-modal-body">';
+
+      if (entryType === 'weight') {
+        html += '<p><strong>Weight:</strong> ' + entry.value_kg + ' kg</p>';
+        html += '<p><strong>Date:</strong> ' + fmtDate(entry.date) + '</p>';
+      } else if (entryType === 'sleep') {
+        html += '<p><strong>Hours:</strong> ' + entry.hours + 'h</p>';
+        html += '<p><strong>Bedtime:</strong> ' + esc(entry.bedtime || '—') + '</p>';
+        html += '<p><strong>Wake:</strong> ' + esc(entry.wake_time || '—') + '</p>';
+        html += '<p><strong>Date:</strong> ' + fmtDate(entry.date) + '</p>';
+      } else if (entryType === 'nutrition') {
+        if (entry.calories != null) html += '<p><strong>Calories:</strong> ' + entry.calories + '</p>';
+        if (entry.protein != null) html += '<p><strong>Protein:</strong> ' + entry.protein + ' g</p>';
+        if (entry.carbs != null) html += '<p><strong>Carbs:</strong> ' + entry.carbs + ' g</p>';
+        if (entry.creatine != null) html += '<p><strong>Creatine:</strong> ' + entry.creatine + ' g</p>';
+        if (entry.water_ml != null) html += '<p><strong>Water:</strong> ' + entry.water_ml + ' ml</p>';
+        html += '<p><strong>Date:</strong> ' + fmtDate(entry.date) + '</p>';
+      } else if (entryType === 'workout') {
+        html += '<p><strong>Type:</strong> ' + entry.type.charAt(0).toUpperCase() + entry.type.slice(1) + '</p>';
+        if (entry.duration) html += '<p><strong>Duration:</strong> ' + entry.duration + ' min</p>';
+        if (entry.notes) html += '<p><strong>Notes:</strong> ' + esc(entry.notes) + '</p>';
+        html += '<p><strong>Date:</strong> ' + fmtDate(entry.date) + '</p>';
+        if (entry.exercises && entry.exercises.length) {
+          html += '<h4>Exercises (' + entry.exercises.length + ')</h4>';
+          entry.exercises.forEach((ex, i) => {
+            html += '<div class="view-exercise" id="view-ex-' + id + '-' + i + '"><div class="view-ex-header"><strong>' + (i+1) + '. ' + esc(ex.name) + '</strong>';
+            html += '<button class="view-ex-remove" onclick="removeExerciseFromView(' + id + ',' + i + ',this)">Remove</button></div>';
+            const parts = [];
+            if (entry.type === 'run') {
+              if (ex.distance_km) parts.push(ex.distance_km + ' km');
+              if (ex.duration_seconds) parts.push(secsToMMSS(ex.duration_seconds));
+              if (ex.avg_heart_rate) parts.push(ex.avg_heart_rate + ' bpm');
+              if (ex.avg_speed) parts.push(ex.avg_speed + '/km');
+              if (ex.elevation_m) parts.push(ex.elevation_m + ' m elev');
+            } else {
+              if (ex.sets) parts.push(ex.sets + ' sets');
+              if (ex.reps) parts.push(ex.reps + ' reps');
+              if (ex.weight_kg != null) parts.push(ex.weight_kg + ' kg');
+              if (ex.duration_seconds) parts.push(secsToMMSS(ex.duration_seconds));
+              if (ex.rest_seconds) parts.push('rest ' + secsToMMSS(ex.rest_seconds));
+            }
+            html += '<div class="view-ex-detail">' + parts.join(' · ') + '</div></div>';
+          });
+        }
+      }
+      html += '</div></div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+      if (clickX != null) positionModalNearClick(document.body.lastElementChild, clickX, clickY);
+    }
+
+    async function removeExerciseFromView(workoutId, exIndex, btn) {
+      if (!confirm('Remove this exercise?')) return;
+      const entry = findEntry(workoutId, 'workout');
+      if (!entry) return;
+      const remaining = entry.exercises.filter((_, i) => i !== exIndex);
+      const exercises = remaining.map(ex => ({
+        name: ex.name, sets: ex.sets, reps: ex.reps,
+        weight_kg: ex.weight_kg, time: ex.duration_seconds ? secsToMMSS(ex.duration_seconds) : null,
+        rest: ex.rest_seconds ? secsToMMSS(ex.rest_seconds) : null,
+        distance_km: ex.distance_km, avg_heart_rate: ex.avg_heart_rate,
+        avg_speed: ex.avg_speed, elevation_m: ex.elevation_m
+      }));
+      const res = await fetch('/edit/workout/' + workoutId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exercises })
+      });
+      if (res.ok) {
+        btn.closest('.view-exercise').remove();
+        showToast('Exercise removed!');
+        await loadData();
+      } else {
+        showToast('Could not remove exercise.');
+      }
+    }
+
+    function openEditModal(id, entryType, clickX, clickY, nutrLabel) {
+      if (entryType === 'nutrition' && nutrLabel && Array.isArray(id)) {
+        return openNutritionSubtotalEdit(id, nutrLabel, clickX, clickY);
+      }
+      const entry = findEntry(id, entryType);
+      if (!entry) return;
+      let html = '<div class="entry-modal-backdrop" id="edit-backdrop"><div class="entry-modal" onclick="event.stopPropagation()">';
+      html += '<button class="entry-modal-close" onclick="this.closest(\'.entry-modal-backdrop\').remove()">✕</button>';
+      html += '<h3>Edit ' + entryType.charAt(0).toUpperCase() + entryType.slice(1) + '</h3>';
+      html += '<div class="entry-modal-body">';
+
+      if (entryType === 'weight') {
+        html += '<label>Weight (kg)<input type="number" step="0.1" id="edit-weight-val" value="' + entry.value_kg + '"></label>';
+        html += '<label>Date<input type="text" id="edit-weight-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
+      } else if (entryType === 'sleep') {
+        html += '<label>Bedtime<input type="text" inputmode="numeric" id="edit-sleep-bed" value="' + esc(entry.bedtime || '') + '" placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this)"></label>';
+        html += '<label>Wake time<input type="text" inputmode="numeric" id="edit-sleep-wake" value="' + esc(entry.wake_time || '') + '" placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this)"></label>';
+        html += '<label>Date<input type="text" id="edit-sleep-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
+      } else if (entryType === 'nutrition') {
+        html += '<label>Calories<input type="number" id="edit-nutr-cal" value="' + (entry.calories ?? '') + '"></label>';
+        html += '<label>Protein (g)<input type="number" step="0.1" id="edit-nutr-prot" value="' + (entry.protein ?? '') + '"></label>';
+        html += '<label>Carbs (g)<input type="number" step="0.1" id="edit-nutr-carbs" value="' + (entry.carbs ?? '') + '"></label>';
+        html += '<label>Creatine (g)<input type="number" step="0.1" id="edit-nutr-creat" value="' + (entry.creatine ?? '') + '"></label>';
+        html += '<label>Date<input type="text" id="edit-nutr-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
+      } else if (entryType === 'workout') {
+        html += '<label>Type<select id="edit-wo-type"><option value="power"' + (entry.type==='power'?' selected':'') + '>Power</option><option value="hypertrophy"' + (entry.type==='hypertrophy'?' selected':'') + '>Hypertrophy</option><option value="hiit"' + (entry.type==='hiit'?' selected':'') + '>HIIT</option><option value="run"' + (entry.type==='run'?' selected':'') + '>Run</option><option value="other"' + (entry.type==='other'?' selected':'') + '>Other</option></select></label>';
+        html += '<label>Duration (min)<input type="number" id="edit-wo-dur" value="' + (entry.duration || '') + '"></label>';
+        html += '<label>Notes<input type="text" id="edit-wo-notes" value="' + (entry.notes || '').replace(/"/g, '&quot;') + '"></label>';
+        html += '<label>Date<input type="text" id="edit-wo-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
+        html += '<h4>Exercises</h4><div id="edit-wo-exercises">';
+        const isRun = entry.type === 'run';
+        (entry.exercises || []).forEach((ex, i) => {
+          html += buildEditExHTML(ex, i, isRun);
+        });
+        html += '</div>';
+        html += '<button type="button" class="btn btn-secondary" onclick="addEditExRow()">+ Exercise</button>';
+      }
+
+      html += '<div class="entry-modal-actions">';
+      html += '<button class="btn btn-primary" onclick="submitEdit(' + id + ', \'' + entryType + '\')">Save</button>';
+      html += '<button class="btn btn-secondary" onclick="document.getElementById(\'edit-backdrop\').remove()">Cancel</button>';
+      html += '</div></div></div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+      const backdrop = document.getElementById('edit-backdrop');
+      backdrop.addEventListener('click', function(e) {
+        if (e.target === this) this.remove();
+      });
+      if (clickX != null) positionModalNearClick(backdrop, clickX, clickY);
+    }
+
+    function nutrFieldFromLabel(label) {
+      if (/carb/i.test(label)) return 'carbs';
+      if (/protein/i.test(label)) return 'protein';
+      if (/creatine/i.test(label)) return 'creatine';
+      return null;
+    }
+
+    function openNutritionSubtotalView(ids, label, clickX, clickY) {
+      const field = nutrFieldFromLabel(label);
+      if (!field) return;
+      const entries = ids.map(id => findEntry(id, 'nutrition')).filter(Boolean);
+      if (!entries.length) return;
+      const total = entries.reduce((s, e) => s + (e[field] || 0), 0);
+      const date = entries[0].date;
+      const fieldName = field.charAt(0).toUpperCase() + field.slice(1);
+
+      let html = '<div class="entry-modal-backdrop" onclick="this.remove()"><div class="entry-modal" onclick="event.stopPropagation()">';
+      html += '<button class="entry-modal-close" onclick="this.closest(\'.entry-modal-backdrop\').remove()">✕</button>';
+      html += '<h3>' + fieldName + ' — Daily Total</h3>';
+      html += '<div class="entry-modal-body">';
+      html += '<p><strong>' + fieldName + ':</strong> ' + Math.round(total * 10) / 10 + ' g</p>';
+      html += '<p><strong>Date:</strong> ' + fmtDate(date) + '</p>';
+      if (entries.length > 1) {
+        html += '<p style="color:var(--dim);font-size:0.8rem;margin-top:0.5rem;">From ' + entries.length + ' entries</p>';
+      }
+      html += '</div></div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+      if (clickX != null) positionModalNearClick(document.body.lastElementChild, clickX, clickY);
+    }
+
+    function openNutritionSubtotalEdit(ids, label, clickX, clickY) {
+      const field = nutrFieldFromLabel(label);
+      if (!field) return;
+      const entries = ids.map(id => findEntry(id, 'nutrition')).filter(Boolean);
+      if (!entries.length) return;
+      const total = entries.reduce((s, e) => s + (e[field] || 0), 0);
+      const date = entries[0].date;
+      const fieldName = field.charAt(0).toUpperCase() + field.slice(1);
+
+      let html = '<div class="entry-modal-backdrop" id="edit-backdrop"><div class="entry-modal" onclick="event.stopPropagation()">';
+      html += '<button class="entry-modal-close" onclick="this.closest(\'.entry-modal-backdrop\').remove()">✕</button>';
+      html += '<h3>Edit ' + fieldName + ' — Daily Total</h3>';
+      html += '<div class="entry-modal-body">';
+      html += '<label>' + fieldName + ' (g)<input type="number" step="0.1" id="edit-nutr-subtotal" value="' + (Math.round(total * 10) / 10) + '"></label>';
+      html += '<label>Date<input type="text" id="edit-nutr-subtotal-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(date) + '" oninput="autoFormatDate(this)"></label>';
+      html += '<div class="entry-modal-actions">';
+      html += '<button class="btn btn-primary" onclick="submitNutrSubtotalEdit(\'' + field + '\',' + JSON.stringify(ids) + ')">Save</button>';
+      html += '<button class="btn btn-secondary" onclick="document.getElementById(\'edit-backdrop\').remove()">Cancel</button>';
+      html += '</div></div></div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+      const backdrop = document.getElementById('edit-backdrop');
+      backdrop.addEventListener('click', function(e) { if (e.target === this) this.remove(); });
+      if (clickX != null) positionModalNearClick(backdrop, clickX, clickY);
+    }
+
+    async function submitNutrSubtotalEdit(field, ids) {
+      const newTotal = parseFloat(document.getElementById('edit-nutr-subtotal').value) || 0;
+      const dateRaw = document.getElementById('edit-nutr-subtotal-date').value;
+      const parts = dateRaw.split('/');
+      const isoDate = parts.length === 3 ? '20' + parts[2] + '-' + parts[1] + '-' + parts[0] : null;
+
+      const entries = ids.map(id => findEntry(id, 'nutrition')).filter(Boolean);
+      const oldTotal = entries.reduce((s, e) => s + (e[field] || 0), 0);
+
+      if (entries.length === 1) {
+        const body = {};
+        body[field] = newTotal;
+        if (isoDate) body.date = isoDate;
+        const res = await fetch('/edit/nutrition/' + ids[0], {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (res.ok) { showToast('Updated!'); document.getElementById('edit-backdrop').remove(); await loadData(); }
+        else showToast('Could not update.');
+      } else {
+        await Promise.all(entries.map((e, i) => {
+          const proportion = oldTotal > 0 ? (e[field] || 0) / oldTotal : 1 / entries.length;
+          const body = {};
+          body[field] = Math.round(newTotal * proportion * 10) / 10;
+          if (isoDate) body.date = isoDate;
+          return fetch('/edit/nutrition/' + ids[i], {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+        }));
+        showToast('Updated!');
+        const bd = document.getElementById('edit-backdrop');
+        if (bd) bd.remove();
+        await loadData();
+      }
+    }
+
+    function buildEditExHTML(ex, idx, isRun) {
+      const v = (field) => ex ? (ex[field] ?? '') : '';
+      const name = ex ? (ex.name || '').replace(/"/g, '&quot;') : '';
+      const num = idx + 1;
+      let h = '<div class="edit-ex-card">';
+      h += '<div class="edit-ex-header"><span class="edit-ex-num">' + num + '</span>';
+      h += '<input type="text" class="edit-ex-name" value="' + name + '" placeholder="Exercise name">';
+      h += '<button type="button" class="edit-ex-del" onclick="this.closest(\'.edit-ex-card\').remove(); renumberEditEx()">Remove</button></div>';
+      if (isRun) {
+        h += '<div class="edit-ex-fields">';
+        h += '<label>Distance (km)<input type="number" step="0.01" class="edit-ex-dist" value="' + v('distance_km') + '"></label>';
+        h += '<label>Duration<input type="text" class="edit-ex-rundur" value="' + (ex && ex.duration_seconds ? secsToMMSS(ex.duration_seconds) : '') + '" placeholder="MM:SS"></label>';
+        h += '<label>Heart rate<input type="number" class="edit-ex-hr" value="' + v('avg_heart_rate') + '" placeholder="bpm"></label>';
+        h += '<label>Pace<input type="text" class="edit-ex-speed" value="' + v('avg_speed') + '" placeholder="min/km"></label>';
+        h += '<label>Elevation (m)<input type="number" class="edit-ex-elev" value="' + v('elevation_m') + '"></label>';
+        h += '</div>';
+      } else {
+        h += '<div class="edit-ex-fields">';
+        h += '<label>Sets<input type="number" class="edit-ex-sets" value="' + v('sets') + '"></label>';
+        h += '<label>Reps<input type="number" class="edit-ex-reps" value="' + v('reps') + '"></label>';
+        h += '<label>Weight (kg)<input type="number" step="0.5" class="edit-ex-weight" value="' + v('weight_kg') + '"></label>';
+        h += '<label>Time<input type="text" class="edit-ex-time" value="' + (ex && ex.duration_seconds ? secsToMMSS(ex.duration_seconds) : '') + '" placeholder="MM:SS"></label>';
+        h += '<label>Rest<input type="text" class="edit-ex-rest" value="' + (ex && ex.rest_seconds ? secsToMMSS(ex.rest_seconds) : '') + '" placeholder="MM:SS"></label>';
+        h += '</div>';
+      }
+      h += '</div>';
+      return h;
+    }
+
+    function renumberEditEx() {
+      document.querySelectorAll('#edit-wo-exercises .edit-ex-card').forEach((card, i) => {
+        card.querySelector('.edit-ex-num').textContent = i + 1;
+      });
+    }
+
+    function addEditExRow() {
+      const container = document.getElementById('edit-wo-exercises');
+      const isRun = document.getElementById('edit-wo-type').value === 'run';
+      const count = container.querySelectorAll('.edit-ex-card').length;
+      container.insertAdjacentHTML('beforeend', buildEditExHTML(null, count, isRun));
+    }
+
+    async function submitEdit(id, entryType) {
+      const data = {};
+      if (entryType === 'weight') {
+        data.value_kg = parseFloat(document.getElementById('edit-weight-val').value);
+        data.date = parseDateInput(document.getElementById('edit-weight-date').value);
+      } else if (entryType === 'sleep') {
+        data.bedtime = document.getElementById('edit-sleep-bed').value;
+        data.wake_time = document.getElementById('edit-sleep-wake').value;
+        data.date = parseDateInput(document.getElementById('edit-sleep-date').value);
+      } else if (entryType === 'nutrition') {
+        const cal = document.getElementById('edit-nutr-cal').value;
+        const prot = document.getElementById('edit-nutr-prot').value;
+        const carbs = document.getElementById('edit-nutr-carbs').value;
+        const creat = document.getElementById('edit-nutr-creat').value;
+        if (cal) data.calories = parseInt(cal);
+        if (prot) data.protein = parseFloat(prot);
+        if (carbs) data.carbs = parseFloat(carbs);
+        if (creat) data.creatine = parseFloat(creat);
+        data.date = parseDateInput(document.getElementById('edit-nutr-date').value);
+      } else if (entryType === 'workout') {
+        data.type = document.getElementById('edit-wo-type').value;
+        const dur = document.getElementById('edit-wo-dur').value;
+        if (dur) data.duration = parseInt(dur);
+        data.notes = document.getElementById('edit-wo-notes').value;
+        data.date = parseDateInput(document.getElementById('edit-wo-date').value);
+        const exercises = [];
+        document.querySelectorAll('#edit-wo-exercises .edit-ex-card').forEach(card => {
+          const name = card.querySelector('.edit-ex-name').value.trim();
+          if (!name) return;
+          const ex = { name };
+          const isRun = data.type === 'run';
+          if (isRun) {
+            const d = card.querySelector('.edit-ex-dist');
+            const h = card.querySelector('.edit-ex-hr');
+            const s = card.querySelector('.edit-ex-speed');
+            const dur = card.querySelector('.edit-ex-rundur');
+            const elev = card.querySelector('.edit-ex-elev');
+            if (d && d.value) ex.distance_km = parseFloat(d.value);
+            if (h && h.value) ex.avg_heart_rate = parseInt(h.value);
+            if (s && s.value) ex.avg_speed = s.value;
+            if (dur && dur.value) ex.time = dur.value;
+            if (elev && elev.value) ex.elevation_m = parseFloat(elev.value);
+          } else {
+            const s = card.querySelector('.edit-ex-sets');
+            const r = card.querySelector('.edit-ex-reps');
+            const w = card.querySelector('.edit-ex-weight');
+            const t = card.querySelector('.edit-ex-time');
+            const rest = card.querySelector('.edit-ex-rest');
+            if (s && s.value) ex.sets = parseInt(s.value);
+            if (r && r.value) ex.reps = parseInt(r.value);
+            if (w && w.value) ex.weight_kg = parseFloat(w.value);
+            if (t && t.value) ex.time = t.value;
+            if (rest && rest.value) ex.rest = rest.value;
+          }
+          exercises.push(ex);
+        });
+        data.exercises = exercises;
+      }
+      const res = await fetch('/edit/' + entryType + '/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      document.getElementById('edit-backdrop').remove();
+      if (res.ok) { showToast('Updated!'); await loadData(); }
+      else showToast('Could not update.');
+    }
+
     // === Exercise logger ===
-    let exRowCount = 0;
 
     function updateExerciseMode() {
       const run = document.getElementById('wo-type').value === 'run';
@@ -651,7 +1816,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type, notes,
-          date: dateVal || new Date().toISOString().slice(0, 10),
+          date: parseDateInput(dateVal) || new Date().toISOString().slice(0, 10),
           duration: duration || null,
           exercises
         })
@@ -670,7 +1835,7 @@
       document.getElementById('wo-type').value = 'power';
       document.getElementById('wo-duration').value = '';
       document.getElementById('wo-notes').value = '';
-      document.getElementById('wo-date').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('wo-date').value = todayFormatted();
       document.getElementById('ex-rows').innerHTML = '';
       hideWoError();
       updateExerciseMode();
