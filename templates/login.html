@@ -6,11 +6,12 @@
   <title>FitDash — {% if mode == 'register' %}Sign Up{% else %}Login{% endif %}</title>
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#2a2d35">
-  <link rel="stylesheet" href="/static/style.css?v=29">
+  <link rel="apple-touch-icon" href="/static/icon.png">
+  <link rel="stylesheet" href="/static/style.css?v=30">
 </head>
 <body class="auth-body">
   <div class="auth-card">
-    <div class="auth-logo">💪 FitDash</div>
+    <div class="auth-logo"><img src="/static/icon.png" alt="" class="logo-icon"> FitDash</div>
 
     {% with messages = get_flashed_messages() %}
       {% if messages %}

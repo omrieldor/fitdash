@@ -1,5 +1,5 @@
-const CACHE = 'fitdash-v29';
-const STATIC = ['/static/style.css?v=29', '/static/manifest.json'];
+const CACHE = 'fitdash-v30';
+const STATIC = ['/static/style.css?v=30', '/static/manifest.json', '/static/icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC)));

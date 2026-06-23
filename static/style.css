@@ -144,9 +144,14 @@ header {
   font-weight: 800;
   letter-spacing: -0.04em;
   color: #b8917a;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   transition: all 0.3s var(--ease);
 }
 .logo:hover { filter: brightness(1.3); }
+.logo-icon { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
+.auth-logo .logo-icon { width: 48px; height: 48px; border-radius: 10px; }
 .header-right { display: flex; align-items: center; gap: 0.8rem; }
 .username { font-size: 0.8rem; font-weight: 500; color: var(--dim); letter-spacing: 0.02em; }
 
