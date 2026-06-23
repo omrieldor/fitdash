@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="/static/style.css?v=33">
+  <link rel="stylesheet" href="/static/style.css?v=34">
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -475,13 +475,13 @@
       renderAll();
     }
 
+    let chartsRendered = { 0: false, 1: false, 2: false, 3: false };
+
     function renderAll() {
       renderPhaseBanner();
       renderSummary();
-      renderWorkoutChart();
-      renderWeightChart();
-      renderSleepChart();
-      renderCaloriesChart();
+      chartsRendered = { 0: false, 1: false, 2: false, 3: false };
+      renderPageCharts(activePageIndex);
       renderRecentWorkouts();
       leaderboardStale = true;
       setTimeout(resizeContainer, 50);
@@ -494,6 +494,13 @@
       } else {
         planDisplay.classList.add('hidden');
       }
+    }
+
+    function renderPageCharts(index) {
+      if (index === 0 && !chartsRendered[0]) { chartsRendered[0] = true; renderWorkoutChart(); }
+      if (index === 1 && !chartsRendered[1]) { chartsRendered[1] = true; renderWeightChart(); }
+      if (index === 2 && !chartsRendered[2]) { chartsRendered[2] = true; renderSleepChart(); }
+      if (index === 3 && !chartsRendered[3]) { chartsRendered[3] = true; renderCaloriesChart(); }
     }
 
     function renderPhaseBanner() {
@@ -562,6 +569,7 @@
     }
 
     let charts = {};
+    const chartDefaults = { animation: { duration: 0 }, hover: { animationDuration: 0 }, responsiveAnimationDuration: 0 };
 
     function renderWorkoutChart() {
       const ctx = document.getElementById('chart-workouts').getContext('2d');
@@ -648,7 +656,7 @@
         charts.workouts = new Chart(ctx, {
           type: 'bar',
           data: { labels: chartLabels, datasets },
-          options: {
+          options: { ...chartDefaults,
             responsive: true,
             plugins: {
               tooltip: {
@@ -706,7 +714,7 @@
         charts.weight = new Chart(ctx, {
           type: 'line',
           data: { labels, datasets: newDatasets },
-          options: { responsive: true }
+          options: { ...chartDefaults, responsive: true }
         });
         setupLongPress(document.getElementById('chart-weight'), charts.weight, 'weight');
       }
@@ -725,7 +733,7 @@
       const loggedDays = Object.keys(sleepMap).sort();
       if (!loggedDays.length) {
         if (!charts.sleep) {
-          charts.sleep = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true } });
+          charts.sleep = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: { ...chartDefaults, responsive: true } });
         } else {
           charts.sleep.data.labels = [];
           charts.sleep.data.datasets = [];
@@ -756,7 +764,7 @@
         charts.sleep = new Chart(ctx, {
           type: 'line',
           data: { labels, datasets: newDatasets },
-          options: { responsive: true }
+          options: { ...chartDefaults, responsive: true }
         });
         setupLongPress(document.getElementById('chart-sleep'), charts.sleep, 'sleep');
       }
@@ -800,7 +808,7 @@
         charts.calories = new Chart(ctx, {
           type: 'line',
           data: { labels: contLabels, datasets: newDatasets },
-          options: {
+          options: { ...chartDefaults,
             responsive: true,
             scales: {
               yCarbs: { type: 'linear', position: 'left', min: 0, max: 5000, title: { display: true, text: 'Carbs (g)', color: '#8a8a8a' }, ticks: { color: '#8a8a8a' } },
@@ -858,7 +866,7 @@
         charts.nutritionWeekly = new Chart(ctx, {
           type: 'line',
           data: { labels: weekLabels, datasets: wkDatasets },
-          options: {
+          options: { ...chartDefaults,
             responsive: true,
             scales: {
               yCarbs: { type: 'linear', position: 'left', min: 0, max: 25000, title: { display: true, text: 'Carbs (g)', color: '#8a8a8a' }, ticks: { color: '#8a8a8a' } },
@@ -1040,18 +1048,33 @@
 
     function scrollToPage(index) {
       const container = document.getElementById('pages-container');
-      container.scrollTo({ left: index * container.clientWidth, behavior: 'smooth' });
-    }
-
-    let activePageIndex = 0;
-
-    function updateActiveTab() {
-      const container = document.getElementById('pages-container');
-      const index = Math.round(container.scrollLeft / container.clientWidth);
       activePageIndex = index;
       document.querySelectorAll('.page-tab').forEach((tab, i) => {
         tab.classList.toggle('active', i === index);
       });
+      renderPageCharts(index);
+      container.scrollTo({ left: index * container.clientWidth, behavior: 'smooth' });
+      if (index === 4 && leaderboardStale) {
+        leaderboardStale = false;
+        loadLeaderboard();
+      }
+      setTimeout(resizeContainer, 50);
+    }
+
+    let activePageIndex = 0;
+    let _scrollSettleTimer = null;
+
+    function updateActiveTab() {
+      const container = document.getElementById('pages-container');
+      const cw = container.clientWidth;
+      if (!cw) return;
+      const index = Math.round(container.scrollLeft / cw);
+      if (index === activePageIndex) return;
+      activePageIndex = index;
+      document.querySelectorAll('.page-tab').forEach((tab, i) => {
+        tab.classList.toggle('active', i === index);
+      });
+      renderPageCharts(index);
       if (index === 4 && leaderboardStale) {
         leaderboardStale = false;
         loadLeaderboard();
@@ -1070,25 +1093,35 @@
     let _scrollRaf = null;
     function onScrollThrottled() {
       if (_scrollRaf) return;
-      _scrollRaf = requestAnimationFrame(() => { _scrollRaf = null; updateActiveTab(); });
+      _scrollRaf = requestAnimationFrame(() => {
+        _scrollRaf = null;
+        updateActiveTab();
+      });
+      clearTimeout(_scrollSettleTimer);
+      _scrollSettleTimer = setTimeout(() => {
+        const container = document.getElementById('pages-container');
+        const cw = container.clientWidth;
+        if (!cw) return;
+        const index = Math.round(container.scrollLeft / cw);
+        if (index !== activePageIndex) {
+          activePageIndex = index;
+          document.querySelectorAll('.page-tab').forEach((tab, i) => {
+            tab.classList.toggle('active', i === index);
+          });
+          renderPageCharts(index);
+          resizeContainer();
+        }
+        const chartKey = ['workouts', 'weight', 'sleep', 'calories'][index];
+        if (chartKey && charts[chartKey]) charts[chartKey].resize();
+      }, 150);
     }
 
     document.addEventListener('DOMContentLoaded', () => {
       const container = document.getElementById('pages-container');
-      container.addEventListener('scroll', onScrollThrottled);
-
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
-            Object.values(charts).forEach(c => c && c.resize());
-          }
-        });
-      }, { root: container, threshold: 0.5 });
-
-      document.querySelectorAll('.page').forEach(page => observer.observe(page));
+      container.addEventListener('scroll', onScrollThrottled, { passive: true });
 
       const ro = new ResizeObserver(() => resizeContainer());
-      document.querySelectorAll('.page').forEach(page => ro.observe(page));
+      ro.observe(container);
       resizeContainer();
     });
 
@@ -1730,18 +1763,18 @@
         '<span class="ex-num">' + (currentCount + 1) + '</span>' +
         '<input class="ex-name" type="text" placeholder="' + (run ? 'e.g. Night run' : 'e.g. Bench press') + '" oninput="this.classList.remove(\'field-error\')">' +
         '<span class="str-group">' +
-          '<input class="ex-sets" type="number" min="1" max="20" placeholder="3" oninput="this.classList.remove(\'field-error\')">' +
-          '<input class="ex-reps" type="number" min="1" max="200" placeholder="10" oninput="this.classList.remove(\'field-error\')">' +
-          '<input class="ex-weight" type="number" min="0" max="500" step="0.5" placeholder="0" oninput="this.classList.remove(\'field-error\')">' +
-          '<input class="ex-time" type="text" placeholder="1:30" title="Time (MM:SS)" oninput="this.classList.remove(\'field-error\')">' +
-          '<input class="ex-rest" type="text" placeholder="2:30" title="Rest (MM:SS)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-sets" type="number" min="1" max="20" placeholder="Sets" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-reps" type="number" min="1" max="200" placeholder="Reps" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-weight" type="number" min="0" max="500" step="0.5" placeholder="Weight (kg)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-time" type="text" placeholder="Time (M:SS)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-rest" type="text" placeholder="Rest (M:SS)" oninput="this.classList.remove(\'field-error\')">' +
         '</span>' +
         '<span class="run-group">' +
-          '<input class="ex-dist" type="number" step="0.01" min="0" max="200" placeholder="km" oninput="this.classList.remove(\'field-error\')">' +
-          '<input class="ex-rundur" type="text" placeholder="25:00" title="Duration (MM:SS)" oninput="this.classList.remove(\'field-error\')">' +
-          '<input class="ex-hr" type="number" min="40" max="230" placeholder="bpm" oninput="this.classList.remove(\'field-error\')">' +
-          '<input class="ex-speed" type="text" placeholder="5:00" title="Avg pace (min/km)" oninput="this.classList.remove(\'field-error\')">' +
-          '<input class="ex-elev" type="number" placeholder="m" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-dist" type="number" step="0.01" min="0" max="200" placeholder="Dist (km)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-rundur" type="text" placeholder="Duration (M:SS)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-hr" type="number" min="40" max="230" placeholder="Avg HR (bpm)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-speed" type="text" placeholder="Pace (min/km)" oninput="this.classList.remove(\'field-error\')">' +
+          '<input class="ex-elev" type="number" placeholder="Elev (m)" oninput="this.classList.remove(\'field-error\')">' +
         '</span>' +
         '<button type="button" class="ex-del" onclick="this.closest(\'.ex-row\').remove(); renumberRows()">×</button>';
       document.getElementById('ex-rows').appendChild(row);
