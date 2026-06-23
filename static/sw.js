@@ -1,5 +1,5 @@
-const CACHE = 'eldorado-v32';
-const STATIC = ['/static/style.css?v=32', '/static/manifest.json', '/static/icon.png?v=2'];
+const CACHE = 'eldorado-v33';
+const STATIC = ['/static/style.css?v=33', '/static/manifest.json', '/static/icon-180.png', '/static/icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC)));
