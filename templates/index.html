@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="/static/style.css?v=36">
+  <link rel="stylesheet" href="/static/style.css?v=37">
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -742,7 +742,7 @@
       if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); } }
       const labels = days.map(d => fmtDate(d));
       const newDatasets = [
-        { label: 'Hours slept', data: days.map(d => sleepMap[d] ? sleepMap[d].hours : 0), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0, fill: true, _ids: days.map(d => sleepMap[d] ? sleepMap[d].id : null), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: 'Hours slept', data: days.map(d => sleepMap[d] ? sleepMap[d].hours : null), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0, fill: true, _ids: days.map(d => sleepMap[d] ? sleepMap[d].id : null), spanGaps: false, pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
         { label: '8h target', data: days.map(() => 8), borderColor: '#2ecc71', borderDash: [6, 3], pointRadius: 0 }
       ];
       if (charts.sleep) {
@@ -782,12 +782,12 @@
         days.push(d.toISOString().slice(0, 10));
       }
       if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); } }
-      const contDays = days.map(d => dailyMap[d] || { carbs: 0, protein: 0, creatine: 0, ids: [] });
+      const contDays = days.map(d => dailyMap[d] || null);
       const contLabels = days.map(d => fmtDate(d));
       const newDatasets = [
-        { label: 'Carbs (g)', data: contDays.map(d => d.carbs), borderColor: '#8a8a8a', backgroundColor: 'rgba(138,138,138,0.1)', tension: 0, fill: false, yAxisID: 'yCarbs', _ids: contDays.map(d => d.ids), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
-        { label: 'Protein (g)', data: contDays.map(d => d.protein), borderColor: '#1a6fc4', backgroundColor: 'rgba(26,111,196,0.1)', tension: 0, fill: false, yAxisID: 'yProtein', _ids: contDays.map(d => d.ids), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
-        { label: 'Creatine (g)', data: contDays.map(d => d.creatine), borderColor: '#2ecc71', backgroundColor: 'rgba(46,204,113,0.1)', tension: 0, fill: false, yAxisID: 'yCreatine', _ids: contDays.map(d => d.ids), pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 }
+        { label: 'Carbs (g)', data: contDays.map(d => d ? d.carbs : null), borderColor: '#8a8a8a', backgroundColor: 'rgba(138,138,138,0.1)', tension: 0, fill: false, yAxisID: 'yCarbs', _ids: contDays.map(d => d ? d.ids : []), spanGaps: false, pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: 'Protein (g)', data: contDays.map(d => d ? d.protein : null), borderColor: '#1a6fc4', backgroundColor: 'rgba(26,111,196,0.1)', tension: 0, fill: false, yAxisID: 'yProtein', _ids: contDays.map(d => d ? d.ids : []), spanGaps: false, pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: 'Creatine (g)', data: contDays.map(d => d ? d.creatine : null), borderColor: '#2ecc71', backgroundColor: 'rgba(46,204,113,0.1)', tension: 0, fill: false, yAxisID: 'yCreatine', _ids: contDays.map(d => d ? d.ids : []), spanGaps: false, pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 }
       ];
       if (charts.calories) {
         charts.calories.data.labels = contLabels;
@@ -1050,7 +1050,6 @@
       }
       const chartKey = ['workouts', 'weight', 'sleep', 'calories'][index];
       if (chartKey && charts[chartKey]) charts[chartKey].resize();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     let activePageIndex = 0;
