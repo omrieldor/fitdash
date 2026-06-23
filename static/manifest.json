@@ -1,6 +1,6 @@
 {
-  "name": "FitDash",
-  "short_name": "FitDash",
+  "name": "Path to Eldorado",
+  "short_name": "Eldorado",
   "description": "Personal fitness analytics dashboard",
   "start_url": "/",
   "display": "standalone",
@@ -11,7 +11,7 @@
       "src": "/static/icon.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

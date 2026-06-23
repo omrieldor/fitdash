@@ -17,7 +17,7 @@ _fallback_key = os.environ.get('SECRET_KEY')
 if not _fallback_key:
     import warnings
     warnings.warn('SECRET_KEY not set — using insecure dev-only default. Set SECRET_KEY env var in production.')
-    _fallback_key = 'fitdash-dev-insecure-key-change-me'
+    _fallback_key = 'eldorado-dev-insecure-key-change-me'
 app.secret_key = _fallback_key
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///dashboard.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

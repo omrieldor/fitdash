@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>FitDash</title>
+  <title>Path to Eldorado</title>
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#2a2d35">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icon.png">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="/static/style.css?v=30">
+  <link rel="stylesheet" href="/static/style.css?v=31">
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -18,7 +18,7 @@
   <!-- Header -->
   <header>
     <div class="header-inner">
-      <span class="logo"><img src="/static/icon.png" alt="" class="logo-icon"> FitDash</span>
+      <span class="logo"><img src="/static/icon.png" alt="" class="logo-icon"> Path to Eldorado</span>
       <div class="header-right">
         <span class="username">{{ user.username }}</span>
         {% if can_commander %}
