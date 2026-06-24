@@ -789,8 +789,16 @@ def garmin_link():
         from garminconnect import Garmin as GarminClient
         import json
         from garmin_sync import encrypt_password
-        api = GarminClient(email, password)
-        api.login()
+
+        api = GarminClient(email, password, return_on_mfa=True)
+        result = api.login()
+
+        if result and result[0]:
+            session['garmin_mfa_state'] = json.dumps(result[0])
+            session['garmin_mfa_email'] = email
+            session['garmin_mfa_password'] = password
+            return jsonify({'status': 'mfa_required'}), 200
+
         current_user.garmin_email = email
         current_user.garmin_password_enc = encrypt_password(password)
         current_user.garmin_token_store = json.dumps(api.garth.dumps())
@@ -799,15 +807,41 @@ def garmin_link():
         db.session.commit()
         return jsonify({'status': 'ok'})
     except Exception as e:
-        msg = str(e)
-        if 'MFA' in msg.upper() or 'multi' in msg.lower():
-            from garmin_sync import encrypt_password
-            current_user.garmin_email = email
-            current_user.garmin_password_enc = encrypt_password(password)
-            current_user.garmin_sync_status = 'mfa_required'
-            db.session.commit()
-            return jsonify({'status': 'mfa_required'}), 200
-        return jsonify({'status': f'Login failed: {msg}'}), 401
+        return jsonify({'status': f'Login failed: {str(e)}'}), 401
+
+
+@app.route('/garmin/mfa', methods=['POST'])
+@login_required
+def garmin_mfa():
+    import json
+    from garminconnect import Garmin as GarminClient
+    from garmin_sync import encrypt_password
+
+    data = request.get_json()
+    code = str(data.get('code', '')).strip()[:10]
+    if not code:
+        return jsonify({'status': 'Enter the verification code'}), 400
+
+    state_json = session.pop('garmin_mfa_state', None)
+    email = session.pop('garmin_mfa_email', None)
+    password = session.pop('garmin_mfa_password', None)
+    if not state_json or not email or not password:
+        return jsonify({'status': 'MFA session expired — try connecting again'}), 400
+
+    try:
+        client_state = json.loads(state_json)
+        api = GarminClient(email, password)
+        api.resume_login(client_state, code)
+
+        current_user.garmin_email = email
+        current_user.garmin_password_enc = encrypt_password(password)
+        current_user.garmin_token_store = json.dumps(api.garth.dumps())
+        current_user.garmin_linked = True
+        current_user.garmin_sync_status = 'ok'
+        db.session.commit()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'status': f'MFA failed: {str(e)}'}), 401
 
 
 @app.route('/garmin/unlink', methods=['POST'])
