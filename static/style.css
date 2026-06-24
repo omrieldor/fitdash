@@ -1397,3 +1397,18 @@ header {
 .lb-name { flex: 1; font-weight: 500; font-size: 0.88rem; }
 .lb-val { font-weight: 800; color: var(--silver); font-size: 0.88rem; }
 .lb-empty { color: var(--dim); font-size: 0.85rem; margin: 0; }
+
+/* === Garmin === */
+.garmin-auth-banner { background: rgba(160,85,85,0.25); color: #e88; padding: 0.6rem 1rem; text-align: center; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; gap: 0.8rem; }
+.garmin-auth-banner .btn-sm { font-size: 0.75rem; padding: 0.2rem 0.6rem; }
+.settings-divider { border: none; border-top: 1px solid var(--faint); margin: 1rem 0; }
+.garmin-desc { color: var(--dim); font-size: 0.82rem; margin-bottom: 0.6rem; }
+.garmin-error { color: #e88; font-size: 0.82rem; margin-top: 0.4rem; }
+.garmin-status-text { font-size: 0.88rem; margin-bottom: 0.3rem; }
+.garmin-dim { color: var(--dim); font-size: 0.78rem; margin-bottom: 0.5rem; }
+.garmin-unlink-btn { color: var(--red); border-color: var(--red); }
+.garmin-sync-bar { display: flex; align-items: center; gap: 0.8rem; padding: 0.5rem 1rem; margin: 0.3rem 0 0.5rem; }
+.btn-garmin-sync { background: var(--surface); color: var(--text); border: 1.5px solid var(--glow); border-radius: var(--r); padding: 0.5rem 1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; box-shadow: var(--neo); transition: opacity 0.2s; }
+.btn-garmin-sync:disabled { opacity: 0.5; cursor: default; }
+.garmin-sync-msg { color: var(--dim); font-size: 0.8rem; }
+.wo-garmin-badge { font-size: 0.7rem; margin-right: 0.3rem; opacity: 0.7; }

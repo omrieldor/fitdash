@@ -79,6 +79,12 @@
     <button class="btn-outline btn-sm" onclick="toggleSettings()">⚙ Settings</button>
   </div>
 
+  <!-- Garmin Auth Failure Banner -->
+  <div id="garmin-auth-banner" class="garmin-auth-banner hidden">
+    <span>⚠ Garmin connection lost — please reconnect</span>
+    <button class="btn-sm btn-outline" onclick="toggleSettings()">Reconnect</button>
+  </div>
+
   <!-- Settings Panel -->
   <div id="settings-panel" class="settings-panel hidden">
     <h3>Settings</h3>
@@ -93,6 +99,21 @@
     </label>
     <button class="btn-primary btn-sm" onclick="saveSettings()">Save</button>
     <button class="btn-outline btn-sm" onclick="toggleSettings()">Cancel</button>
+
+    <hr class="settings-divider">
+    <h3>⌚ Garmin Connect</h3>
+    <div id="garmin-unlinked">
+      <p class="garmin-desc">Link your Garmin account to auto-sync workouts.</p>
+      <label>Garmin Email <input type="email" id="garmin-email" placeholder="your@email.com"></label>
+      <label>Garmin Password <input type="password" id="garmin-password" placeholder="password"></label>
+      <button class="btn-primary btn-sm" id="garmin-link-btn" onclick="linkGarmin()">Connect Garmin</button>
+      <div id="garmin-link-error" class="garmin-error hidden"></div>
+    </div>
+    <div id="garmin-linked" class="hidden">
+      <p class="garmin-status-text">✅ Connected as <strong id="garmin-linked-email"></strong></p>
+      <p id="garmin-last-sync-text" class="garmin-dim"></p>
+      <button class="btn-outline btn-sm garmin-unlink-btn" onclick="unlinkGarmin()">Disconnect Garmin</button>
+    </div>
   </div>
 
   <!-- Weekly Plan Display -->
@@ -127,6 +148,11 @@
         <h3>Workouts by type (last 8 weeks)</h3>
         <div id="hiit-warning" class="hiit-warning hidden">⚠ Low HIIT/Running this week</div>
         <canvas id="chart-workouts"></canvas>
+      </div>
+
+      <div id="garmin-sync-bar" class="garmin-sync-bar hidden">
+        <button class="btn-garmin-sync" id="btn-garmin-sync" onclick="garminSyncNow()">⌚ Sync Garmin</button>
+        <span id="garmin-sync-msg" class="garmin-sync-msg"></span>
       </div>
 
       <div class="log-section">
@@ -988,6 +1014,7 @@
         return '<div class="wo-hist-item" id="wo-' + w.id + '">' +
           '<div class="wo-hist-header">' +
             '<div class="wo-hist-meta">' +
+              (w.garmin ? '<span class="wo-garmin-badge">⌚</span>' : '') +
               '<span class="wo-hist-type wo-type-' + esc(w.type) + '">' + esc(typeLabel) + '</span>' +
               '<span class="wo-hist-date">' + w.date + '</span>' +
               (dur ? '<span class="wo-hist-dur">' + dur + '</span>' : '') +
@@ -1836,9 +1863,86 @@
       document.getElementById('wo-error').classList.add('hidden');
     }
 
+    // === Garmin ===
+    let garminLinked = false;
+
+    async function checkGarminStatus() {
+      try {
+        const res = await fetch('/garmin/status');
+        const data = await res.json();
+        garminLinked = data.linked;
+        document.getElementById('garmin-unlinked').classList.toggle('hidden', data.linked);
+        document.getElementById('garmin-linked').classList.toggle('hidden', !data.linked);
+        document.getElementById('garmin-sync-bar').classList.toggle('hidden', !data.linked);
+        if (data.linked) {
+          document.getElementById('garmin-linked-email').textContent = data.email;
+          document.getElementById('garmin-last-sync-text').textContent = data.last_sync ? 'Last sync: ' + data.last_sync : 'Not synced yet';
+        }
+        document.getElementById('garmin-auth-banner').classList.toggle('hidden', data.sync_status !== 'auth_failed');
+      } catch(e) {}
+    }
+
+    async function linkGarmin() {
+      const btn = document.getElementById('garmin-link-btn');
+      const errEl = document.getElementById('garmin-link-error');
+      const email = document.getElementById('garmin-email').value.trim();
+      const pw = document.getElementById('garmin-password').value;
+      if (!email || !pw) { errEl.textContent = 'Enter email and password'; errEl.classList.remove('hidden'); return; }
+      btn.disabled = true; btn.textContent = 'Connecting...';
+      errEl.classList.add('hidden');
+      try {
+        const res = await fetch('/garmin/link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: pw })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          showToast('Garmin connected!');
+          document.getElementById('garmin-password').value = '';
+          await checkGarminStatus();
+        } else {
+          errEl.textContent = data.status || 'Connection failed';
+          errEl.classList.remove('hidden');
+        }
+      } catch(e) {
+        errEl.textContent = 'Network error'; errEl.classList.remove('hidden');
+      }
+      btn.disabled = false; btn.textContent = 'Connect Garmin';
+    }
+
+    async function unlinkGarmin() {
+      if (!confirm('Disconnect Garmin? Your synced workouts will remain.')) return;
+      await fetch('/garmin/unlink', { method: 'POST' });
+      showToast('Garmin disconnected');
+      await checkGarminStatus();
+    }
+
+    async function garminSyncNow() {
+      const btn = document.getElementById('btn-garmin-sync');
+      const msg = document.getElementById('garmin-sync-msg');
+      btn.disabled = true; btn.textContent = '⌚ Syncing...';
+      msg.textContent = '';
+      try {
+        const res = await fetch('/garmin/sync', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          showToast('Garmin synced!');
+          await loadData();
+          await checkGarminStatus();
+        } else {
+          msg.textContent = data.status || 'Sync failed';
+        }
+      } catch(e) {
+        msg.textContent = 'Network error';
+      }
+      btn.disabled = false; btn.textContent = '⌚ Sync Garmin';
+    }
+
     addExerciseRow();
     setDefaultDates();
     loadData();
+    checkGarminStatus();
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/static/sw.js');

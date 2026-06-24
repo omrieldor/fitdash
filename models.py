@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
-from datetime import date
+from datetime import date, datetime
 
 db = SQLAlchemy()
 
@@ -12,6 +12,13 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(200), nullable=False)
     current_phase = db.Column(db.String(10), default='bulk')  # 'bulk' or 'cut'
     weight_target_kg = db.Column(db.Float, default=83.0)
+
+    garmin_email = db.Column(db.String(200))
+    garmin_password_enc = db.Column(db.Text)
+    garmin_token_store = db.Column(db.Text)
+    garmin_linked = db.Column(db.Boolean, default=False)
+    garmin_last_sync = db.Column(db.DateTime)
+    garmin_sync_status = db.Column(db.String(50), default='ok')
 
     workouts = db.relationship('Workout', backref='user', lazy=True, cascade='all, delete-orphan')
     weights = db.relationship('Weight', backref='user', lazy=True, cascade='all, delete-orphan')
@@ -26,6 +33,7 @@ class Workout(db.Model):
     type = db.Column(db.String(50), nullable=False)  # power, hypertrophy, hiit, run, other
     duration = db.Column(db.Integer)  # minutes
     notes = db.Column(db.Text)
+    garmin_activity_id = db.Column(db.String(50), index=True)
     date = db.Column(db.Date, default=date.today)
     exercises = db.relationship('WorkoutExercise', backref='workout', lazy=True,
                                 cascade='all, delete-orphan',
@@ -54,6 +62,7 @@ class Weight(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     value_kg = db.Column(db.Float, nullable=False)
+    garmin_weight_id = db.Column(db.String(50), index=True)
     date = db.Column(db.Date, default=date.today)
 
 
@@ -63,6 +72,7 @@ class Sleep(db.Model):
     hours = db.Column(db.Float, nullable=False)
     bedtime = db.Column(db.String(10))   # HH:MM
     wake_time = db.Column(db.String(10)) # HH:MM
+    garmin_sleep_id = db.Column(db.String(20), index=True)
     date = db.Column(db.Date, default=date.today)
 
 

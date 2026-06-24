@@ -37,6 +37,33 @@ def load_user(user_id):
 
 with app.app_context():
     db.create_all()
+    # WAL mode for concurrent access (sync script + web app)
+    db.session.execute(db.text('PRAGMA journal_mode=WAL'))
+    db.session.commit()
+    # Migrate: add Garmin columns if missing
+    inspector = db.inspect(db.engine)
+    user_cols = {c['name'] for c in inspector.get_columns('user')}
+    workout_cols = {c['name'] for c in inspector.get_columns('workout')}
+    garmin_user_cols = {
+        'garmin_email': "VARCHAR(200)",
+        'garmin_password_enc': "TEXT",
+        'garmin_token_store': "TEXT",
+        'garmin_linked': "BOOLEAN DEFAULT 0",
+        'garmin_last_sync': "DATETIME",
+        'garmin_sync_status': "VARCHAR(50) DEFAULT 'ok'",
+    }
+    for col, coltype in garmin_user_cols.items():
+        if col not in user_cols:
+            db.session.execute(db.text(f'ALTER TABLE user ADD COLUMN {col} {coltype}'))
+    if 'garmin_activity_id' not in workout_cols:
+        db.session.execute(db.text('ALTER TABLE workout ADD COLUMN garmin_activity_id VARCHAR(50)'))
+    sleep_cols = {c['name'] for c in inspector.get_columns('sleep')}
+    if 'garmin_sleep_id' not in sleep_cols:
+        db.session.execute(db.text('ALTER TABLE sleep ADD COLUMN garmin_sleep_id VARCHAR(20)'))
+    weight_cols = {c['name'] for c in inspector.get_columns('weight')}
+    if 'garmin_weight_id' not in weight_cols:
+        db.session.execute(db.text('ALTER TABLE weight ADD COLUMN garmin_weight_id VARCHAR(50)'))
+    db.session.commit()
 
 
 # --- Rate Limiting ---
@@ -328,7 +355,7 @@ def get_data():
 
     workouts = [{
         'id': w.id, 'type': w.type, 'duration': w.duration, 'notes': w.notes,
-        'date': str(w.date),
+        'date': str(w.date), 'garmin': bool(w.garmin_activity_id),
         'exercises': [{
             'name': e.exercise_name, 'sets': e.sets, 'reps': e.reps,
             'weight_kg': e.weight_kg, 'duration_seconds': e.duration_seconds,
@@ -741,6 +768,89 @@ def set_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     return response
+
+
+GARMIN_ENCRYPT_KEY = os.environ.get('GARMIN_ENCRYPT_KEY', '')
+_garmin_sync_cooldown = {}
+
+
+@app.route('/garmin/link', methods=['POST'])
+@login_required
+def garmin_link():
+    if not GARMIN_ENCRYPT_KEY:
+        return jsonify({'status': 'Garmin sync not configured on server'}), 500
+    data = request.get_json()
+    email = str(data.get('email', '')).strip()[:200]
+    password = str(data.get('password', ''))[:200]
+    if not email or not password:
+        return jsonify({'status': 'Email and password required'}), 400
+
+    try:
+        from garminconnect import Garmin as GarminClient
+        import json
+        from garmin_sync import encrypt_password
+        api = GarminClient(email, password)
+        api.login()
+        current_user.garmin_email = email
+        current_user.garmin_password_enc = encrypt_password(password)
+        current_user.garmin_token_store = json.dumps(api.garth.dumps())
+        current_user.garmin_linked = True
+        current_user.garmin_sync_status = 'ok'
+        db.session.commit()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        msg = str(e)
+        if 'MFA' in msg.upper() or 'multi' in msg.lower():
+            from garmin_sync import encrypt_password
+            current_user.garmin_email = email
+            current_user.garmin_password_enc = encrypt_password(password)
+            current_user.garmin_sync_status = 'mfa_required'
+            db.session.commit()
+            return jsonify({'status': 'mfa_required'}), 200
+        return jsonify({'status': f'Login failed: {msg}'}), 401
+
+
+@app.route('/garmin/unlink', methods=['POST'])
+@login_required
+def garmin_unlink():
+    current_user.garmin_email = None
+    current_user.garmin_password_enc = None
+    current_user.garmin_token_store = None
+    current_user.garmin_linked = False
+    current_user.garmin_last_sync = None
+    current_user.garmin_sync_status = 'ok'
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/garmin/status')
+@login_required
+def garmin_status():
+    return jsonify({
+        'linked': current_user.garmin_linked or False,
+        'email': current_user.garmin_email or '',
+        'last_sync': str(current_user.garmin_last_sync) if current_user.garmin_last_sync else None,
+        'sync_status': current_user.garmin_sync_status or 'ok'
+    })
+
+
+@app.route('/garmin/sync', methods=['POST'])
+@login_required
+def garmin_manual_sync():
+    if not current_user.garmin_linked:
+        return jsonify({'status': 'Garmin not linked'}), 400
+    uid = current_user.id
+    now = time.time()
+    if uid in _garmin_sync_cooldown and now - _garmin_sync_cooldown[uid] < 300:
+        remaining = int(300 - (now - _garmin_sync_cooldown[uid]))
+        return jsonify({'status': f'Please wait {remaining}s before syncing again'}), 429
+    _garmin_sync_cooldown[uid] = now
+    try:
+        from garmin_sync import sync_user
+        sync_user(current_user, db.session)
+        return jsonify({'status': 'ok', 'last_sync': str(current_user.garmin_last_sync)})
+    except Exception as e:
+        return jsonify({'status': f'Sync failed: {str(e)}'}), 500
 
 
 DEPLOY_SECRET = os.environ.get('DEPLOY_SECRET', '')
