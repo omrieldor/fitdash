@@ -1,5 +1,4 @@
 import os
-import json
 import logging
 from datetime import datetime, date, timedelta
 from cryptography.fernet import Fernet
@@ -49,19 +48,17 @@ def _pace_from_speed(avg_speed_mps):
 
 
 def garmin_login(user):
-    api = Garmin()
     if user.garmin_token_store:
         try:
-            token_data = json.loads(user.garmin_token_store)
-            api = Garmin()
-            api.login(token_data)
+            api = Garmin(user.garmin_email, decrypt_password(user.garmin_password_enc))
+            api.login(tokenstore=user.garmin_token_store)
             return api
         except Exception:
             pass
     password = decrypt_password(user.garmin_password_enc)
     api = Garmin(user.garmin_email, password)
     api.login()
-    user.garmin_token_store = json.dumps(api.garth.dumps())
+    user.garmin_token_store = api.client.dumps()
     return api
 
 
@@ -298,11 +295,10 @@ def sync_user(user, db_session):
 
     user.garmin_last_sync = datetime.utcnow()
     user.garmin_sync_status = 'ok'
-    if user.garmin_token_store:
-        try:
-            user.garmin_token_store = json.dumps(api.garth.dumps())
-        except Exception:
-            pass
+    try:
+        user.garmin_token_store = api.client.dumps()
+    except Exception:
+        pass
     db_session.commit()
     total = new_count + sleep_count + weight_count
     if total:

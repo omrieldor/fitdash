@@ -801,7 +801,7 @@ def garmin_link():
 
         current_user.garmin_email = email
         current_user.garmin_password_enc = encrypt_password(password)
-        current_user.garmin_token_store = json.dumps(api.garth.dumps())
+        current_user.garmin_token_store = api.client.dumps()
         current_user.garmin_linked = True
         current_user.garmin_sync_status = 'ok'
         db.session.commit()
@@ -835,7 +835,7 @@ def garmin_mfa():
 
         current_user.garmin_email = email
         current_user.garmin_password_enc = encrypt_password(password)
-        current_user.garmin_token_store = json.dumps(api.garth.dumps())
+        current_user.garmin_token_store = api.client.dumps()
         current_user.garmin_linked = True
         current_user.garmin_sync_status = 'ok'
         db.session.commit()
