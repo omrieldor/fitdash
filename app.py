@@ -772,6 +772,14 @@ def set_security_headers(response):
 
 GARMIN_ENCRYPT_KEY = os.environ.get('GARMIN_ENCRYPT_KEY', '')
 _garmin_sync_cooldown = {}
+_garmin_mfa_pending = {}
+
+
+def _cleanup_stale_mfa(max_age=600):
+    now = time.time()
+    stale = [uid for uid, (_, ts) in _garmin_mfa_pending.items() if now - ts > max_age]
+    for uid in stale:
+        del _garmin_mfa_pending[uid]
 
 
 @app.route('/garmin/link', methods=['POST'])
@@ -787,14 +795,14 @@ def garmin_link():
 
     try:
         from garminconnect import Garmin as GarminClient
-        import json
         from garmin_sync import encrypt_password
 
         api = GarminClient(email, password, return_on_mfa=True)
         result = api.login()
 
         if result and result[0]:
-            session['garmin_mfa_state'] = json.dumps(result[0])
+            _cleanup_stale_mfa()
+            _garmin_mfa_pending[current_user.id] = (api, time.time())
             session['garmin_mfa_email'] = email
             session['garmin_mfa_password'] = password
             return jsonify({'status': 'mfa_required'}), 200
@@ -813,8 +821,6 @@ def garmin_link():
 @app.route('/garmin/mfa', methods=['POST'])
 @login_required
 def garmin_mfa():
-    import json
-    from garminconnect import Garmin as GarminClient
     from garmin_sync import encrypt_password
 
     data = request.get_json()
@@ -822,16 +828,16 @@ def garmin_mfa():
     if not code:
         return jsonify({'status': 'Enter the verification code'}), 400
 
-    state_json = session.pop('garmin_mfa_state', None)
+    pending = _garmin_mfa_pending.pop(current_user.id, None)
     email = session.pop('garmin_mfa_email', None)
     password = session.pop('garmin_mfa_password', None)
-    if not state_json or not email or not password:
+    if not pending or not email or not password:
         return jsonify({'status': 'MFA session expired — try connecting again'}), 400
 
+    api, _ = pending
+
     try:
-        client_state = json.loads(state_json)
-        api = GarminClient(email, password)
-        api.resume_login(client_state, code)
+        api.resume_login({}, code)
 
         current_user.garmin_email = email
         current_user.garmin_password_enc = encrypt_password(password)
