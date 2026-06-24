@@ -1,6 +1,8 @@
 import os
 import re
-
+import hmac
+import hashlib
+import subprocess
 import time
 from datetime import date, timedelta
 from collections import defaultdict
@@ -739,6 +741,22 @@ def set_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     return response
+
+
+DEPLOY_SECRET = os.environ.get('DEPLOY_SECRET', '')
+
+@app.route('/deploy', methods=['POST'])
+@csrf.exempt
+def github_webhook():
+    if not DEPLOY_SECRET:
+        return jsonify({'status': 'not configured'}), 403
+    sig = request.headers.get('X-Hub-Signature-256', '')
+    expected = 'sha256=' + hmac.new(DEPLOY_SECRET.encode(), request.data, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return jsonify({'status': 'forbidden'}), 403
+    subprocess.Popen(['bash', '-c', 'cd /home/ubuntu/fitdash && git pull && sudo systemctl restart eldorado'],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return jsonify({'status': 'deploying'})
 
 
 if __name__ == '__main__':
