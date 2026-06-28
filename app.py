@@ -785,11 +785,19 @@ def _cleanup_stale_mfa(max_age=600):
         del _garmin_mfa_pending[uid]
 
 
+_garmin_link_cooldown = {}
+
 @app.route('/garmin/link', methods=['POST'])
 @login_required
 def garmin_link():
     if not GARMIN_ENCRYPT_KEY:
         return jsonify({'status': 'Garmin sync not configured on server'}), 500
+    uid = current_user.id
+    now = time.time()
+    if uid in _garmin_link_cooldown and now - _garmin_link_cooldown[uid] < 60:
+        remaining = int(60 - (now - _garmin_link_cooldown[uid]))
+        return jsonify({'status': f'Wait {remaining}s before trying again'}), 429
+    _garmin_link_cooldown[uid] = now
     data = request.get_json()
     email = str(data.get('email', '')).strip()[:200]
     password = str(data.get('password', ''))[:200]
@@ -801,6 +809,7 @@ def garmin_link():
         from garmin_sync import encrypt_password
 
         api = GarminClient(email, password, return_on_mfa=True)
+        api.client.skip_strategies = {'mobile+requests', 'portal+cffi', 'portal+requests'}
         _garmin_log.info('Garmin login attempt for user %s', current_user.id)
         result = api.login()
 

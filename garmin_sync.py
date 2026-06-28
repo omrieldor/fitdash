@@ -57,6 +57,7 @@ def garmin_login(user):
             pass
     password = decrypt_password(user.garmin_password_enc)
     api = Garmin(user.garmin_email, password)
+    api.client.skip_strategies = {'mobile+requests', 'portal+cffi', 'portal+requests'}
     api.login()
     user.garmin_token_store = api.client.dumps()
     return api
