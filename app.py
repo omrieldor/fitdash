@@ -770,6 +770,9 @@ def set_security_headers(response):
     return response
 
 
+import logging
+_garmin_log = logging.getLogger('garmin')
+
 GARMIN_ENCRYPT_KEY = os.environ.get('GARMIN_ENCRYPT_KEY', '')
 _garmin_sync_cooldown = {}
 _garmin_mfa_pending = {}
@@ -798,6 +801,7 @@ def garmin_link():
         from garmin_sync import encrypt_password
 
         api = GarminClient(email, password, return_on_mfa=True)
+        _garmin_log.info('Garmin login attempt for user %s', current_user.id)
         result = api.login()
 
         if result and result[0]:
@@ -805,7 +809,9 @@ def garmin_link():
             _garmin_mfa_pending[current_user.id] = (api, time.time())
             session['garmin_mfa_email'] = email
             session['garmin_mfa_password'] = password
-            return jsonify({'status': 'mfa_required'}), 200
+            mfa_method = getattr(api.client, '_mfa_method', 'email')
+            _garmin_log.info('MFA required for user %s (method=%s)', current_user.id, mfa_method)
+            return jsonify({'status': 'mfa_required', 'mfa_method': mfa_method}), 200
 
         current_user.garmin_email = email
         current_user.garmin_password_enc = encrypt_password(password)
@@ -813,9 +819,14 @@ def garmin_link():
         current_user.garmin_linked = True
         current_user.garmin_sync_status = 'ok'
         db.session.commit()
+        _garmin_log.info('Garmin linked for user %s (no MFA)', current_user.id)
         return jsonify({'status': 'ok'})
     except Exception as e:
-        return jsonify({'status': f'Login failed: {str(e)}'}), 401
+        err = str(e)
+        _garmin_log.error('Garmin login failed for user %s: %s', current_user.id, err)
+        if '429' in err or 'rate' in err.lower() or 'too many' in err.lower():
+            return jsonify({'status': 'Garmin is temporarily blocking requests. Wait a few minutes and try again.'}), 429
+        return jsonify({'status': f'Login failed: {err}'}), 401
 
 
 @app.route('/garmin/mfa', methods=['POST'])

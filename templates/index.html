@@ -110,7 +110,7 @@
         <button class="btn-primary btn-sm" id="garmin-link-btn" onclick="linkGarmin()">Connect Garmin</button>
       </div>
       <div id="garmin-mfa-step" class="hidden">
-        <p class="garmin-desc">Garmin sent a verification code to your email/phone. Enter it below:</p>
+        <p class="garmin-desc" id="garmin-mfa-desc">Garmin sent a verification code. Enter it below:</p>
         <label>Verification Code <input type="text" id="garmin-mfa-code" placeholder="6-digit code" maxlength="10" inputmode="numeric"></label>
         <button class="btn-primary btn-sm" id="garmin-mfa-btn" onclick="submitGarminMfa()">Verify</button>
         <button class="btn-outline btn-sm" onclick="cancelGarminMfa()">Cancel</button>
@@ -1912,6 +1912,12 @@
         } else if (data.status === 'mfa_required') {
           document.getElementById('garmin-creds-step').classList.add('hidden');
           document.getElementById('garmin-mfa-step').classList.remove('hidden');
+          const mfaDesc = document.getElementById('garmin-mfa-desc');
+          if (data.mfa_method === 'TOTP') {
+            mfaDesc.textContent = 'Open your authenticator app and enter the code below:';
+          } else {
+            mfaDesc.textContent = 'Garmin sent a verification code to your email. Check spam too. Enter it below:';
+          }
           errEl.classList.add('hidden');
         } else {
           errEl.textContent = data.status || 'Connection failed';
