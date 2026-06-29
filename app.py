@@ -775,17 +775,8 @@ _garmin_log = logging.getLogger('garmin')
 
 GARMIN_ENCRYPT_KEY = os.environ.get('GARMIN_ENCRYPT_KEY', '')
 _garmin_sync_cooldown = {}
-_garmin_mfa_pending = {}
-
-
-def _cleanup_stale_mfa(max_age=600):
-    now = time.time()
-    stale = [uid for uid, (_, ts) in _garmin_mfa_pending.items() if now - ts > max_age]
-    for uid in stale:
-        del _garmin_mfa_pending[uid]
-
-
 _garmin_link_cooldown = {}
+
 
 @app.route('/garmin/link', methods=['POST'])
 @login_required
@@ -810,17 +801,12 @@ def garmin_link():
 
         api = GarminClient(email, password, return_on_mfa=True)
         api.client.skip_strategies = {'mobile+requests', 'portal+cffi', 'portal+requests'}
-        _garmin_log.info('Garmin login attempt for user %s', current_user.id)
+        _garmin_log.info('Garmin login attempt for user %s', uid)
         result = api.login()
 
         if result and result[0]:
-            _cleanup_stale_mfa()
-            _garmin_mfa_pending[current_user.id] = (api, time.time())
-            session['garmin_mfa_email'] = email
-            session['garmin_mfa_password'] = password
-            mfa_method = getattr(api.client, '_mfa_method', 'email')
-            _garmin_log.info('MFA required for user %s (method=%s)', current_user.id, mfa_method)
-            return jsonify({'status': 'mfa_required', 'mfa_method': mfa_method}), 200
+            _garmin_log.info('MFA required for user %s — telling user to disable it', uid)
+            return jsonify({'status': 'mfa_required'}), 200
 
         current_user.garmin_email = email
         current_user.garmin_password_enc = encrypt_password(password)
@@ -828,46 +814,14 @@ def garmin_link():
         current_user.garmin_linked = True
         current_user.garmin_sync_status = 'ok'
         db.session.commit()
-        _garmin_log.info('Garmin linked for user %s (no MFA)', current_user.id)
+        _garmin_log.info('Garmin linked for user %s', uid)
         return jsonify({'status': 'ok'})
     except Exception as e:
         err = str(e)
-        _garmin_log.error('Garmin login failed for user %s: %s', current_user.id, err)
+        _garmin_log.error('Garmin login failed for user %s: %s', uid, err)
         if '429' in err or 'rate' in err.lower() or 'too many' in err.lower():
             return jsonify({'status': 'Garmin is temporarily blocking requests. Wait a few minutes and try again.'}), 429
         return jsonify({'status': f'Login failed: {err}'}), 401
-
-
-@app.route('/garmin/mfa', methods=['POST'])
-@login_required
-def garmin_mfa():
-    from garmin_sync import encrypt_password
-
-    data = request.get_json()
-    code = str(data.get('code', '')).strip()[:10]
-    if not code:
-        return jsonify({'status': 'Enter the verification code'}), 400
-
-    pending = _garmin_mfa_pending.pop(current_user.id, None)
-    email = session.pop('garmin_mfa_email', None)
-    password = session.pop('garmin_mfa_password', None)
-    if not pending or not email or not password:
-        return jsonify({'status': 'MFA session expired — try connecting again'}), 400
-
-    api, _ = pending
-
-    try:
-        api.resume_login({}, code)
-
-        current_user.garmin_email = email
-        current_user.garmin_password_enc = encrypt_password(password)
-        current_user.garmin_token_store = api.client.dumps()
-        current_user.garmin_linked = True
-        current_user.garmin_sync_status = 'ok'
-        db.session.commit()
-        return jsonify({'status': 'ok'})
-    except Exception as e:
-        return jsonify({'status': f'MFA failed: {str(e)}'}), 401
 
 
 @app.route('/garmin/unlink', methods=['POST'])

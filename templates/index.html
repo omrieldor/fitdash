@@ -104,16 +104,11 @@
     <h3>⌚ Garmin Connect</h3>
     <div id="garmin-unlinked">
       <p class="garmin-desc">Link your Garmin account to auto-sync workouts, sleep & weight.</p>
+      <p class="garmin-desc garmin-dim" style="font-size:.85rem">If you have 2-step verification on your Garmin account, turn it off first: Garmin Connect app → Settings → Account → Two-Factor Authentication → Off. You can re-enable it after connecting.</p>
       <div id="garmin-creds-step">
         <label>Garmin Email <input type="email" id="garmin-email" placeholder="your@email.com"></label>
         <label>Garmin Password <input type="password" id="garmin-password" placeholder="password"></label>
         <button class="btn-primary btn-sm" id="garmin-link-btn" onclick="linkGarmin()">Connect Garmin</button>
-      </div>
-      <div id="garmin-mfa-step" class="hidden">
-        <p class="garmin-desc" id="garmin-mfa-desc">Garmin sent a verification code. Enter it below:</p>
-        <label>Verification Code <input type="text" id="garmin-mfa-code" placeholder="6-digit code" maxlength="10" inputmode="numeric"></label>
-        <button class="btn-primary btn-sm" id="garmin-mfa-btn" onclick="submitGarminMfa()">Verify</button>
-        <button class="btn-outline btn-sm" onclick="cancelGarminMfa()">Cancel</button>
       </div>
       <div id="garmin-link-error" class="garmin-error hidden"></div>
     </div>
@@ -1910,15 +1905,8 @@
           document.getElementById('garmin-password').value = '';
           await checkGarminStatus();
         } else if (data.status === 'mfa_required') {
-          document.getElementById('garmin-creds-step').classList.add('hidden');
-          document.getElementById('garmin-mfa-step').classList.remove('hidden');
-          const mfaDesc = document.getElementById('garmin-mfa-desc');
-          if (data.mfa_method === 'TOTP') {
-            mfaDesc.textContent = 'Open your authenticator app and enter the code below:';
-          } else {
-            mfaDesc.textContent = 'Garmin sent a verification code to your email. Check spam too. Enter it below:';
-          }
-          errEl.classList.add('hidden');
+          errEl.textContent = 'Your Garmin account has 2-step verification enabled. Please disable it in the Garmin Connect app (Settings → Account → Two-Factor Authentication → Off), then try again.';
+          errEl.classList.remove('hidden');
         } else {
           errEl.textContent = data.status || 'Connection failed';
           errEl.classList.remove('hidden');
@@ -1927,41 +1915,6 @@
         errEl.textContent = 'Network error'; errEl.classList.remove('hidden');
       }
       btn.disabled = false; btn.textContent = 'Connect Garmin';
-    }
-
-    async function submitGarminMfa() {
-      const btn = document.getElementById('garmin-mfa-btn');
-      const errEl = document.getElementById('garmin-link-error');
-      const code = document.getElementById('garmin-mfa-code').value.trim();
-      if (!code) { errEl.textContent = 'Enter the verification code'; errEl.classList.remove('hidden'); return; }
-      btn.disabled = true; btn.textContent = 'Verifying...';
-      errEl.classList.add('hidden');
-      try {
-        const res = await fetch('/garmin/mfa', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code })
-        });
-        const data = await res.json();
-        if (res.ok && data.status === 'ok') {
-          showToast('Garmin connected!');
-          cancelGarminMfa();
-          await checkGarminStatus();
-        } else {
-          errEl.textContent = data.status || 'Verification failed';
-          errEl.classList.remove('hidden');
-        }
-      } catch(e) {
-        errEl.textContent = 'Network error'; errEl.classList.remove('hidden');
-      }
-      btn.disabled = false; btn.textContent = 'Verify';
-    }
-
-    function cancelGarminMfa() {
-      document.getElementById('garmin-mfa-step').classList.add('hidden');
-      document.getElementById('garmin-creds-step').classList.remove('hidden');
-      document.getElementById('garmin-mfa-code').value = '';
-      document.getElementById('garmin-link-error').classList.add('hidden');
     }
 
     async function unlinkGarmin() {
