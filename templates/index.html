@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="/static/style.css?v=37">
+  <link rel="stylesheet" href="/static/style.css?v=39">
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -122,7 +122,14 @@
   <!-- Weekly Plan Display -->
   <div id="plan-display" class="plan-display hidden">
     <h3>Weekly Plan</h3>
-    <pre id="plan-display-text"></pre>
+    <div id="plan-boxes" class="plan-boxes"></div>
+    <div id="plan-summary" class="plan-summary hidden"></div>
+  </div>
+
+  <!-- Sunday Prompt -->
+  <div id="plan-prompt" class="plan-prompt hidden">
+    <span>📋 It's Sunday — set your training plan for the week!</span>
+    <button class="btn-outline btn-sm" onclick="document.getElementById('tab-workout').scrollIntoView({behavior:'smooth'})">Set Plan</button>
   </div>
 
   <!-- Summary Bar -->
@@ -222,8 +229,19 @@
 
       <div class="plan-section">
         <h2>Weekly Training Plan</h2>
-        <textarea id="weekly-plan" rows="6" placeholder="Write your training plan for this week..."></textarea>
-        <button class="btn-primary btn-sm" onclick="savePlan()">Save Plan</button>
+        <div class="plan-type-buttons">
+          <button type="button" class="plan-type-btn plan-chip-power" onclick="selectPlanType('power')">Power</button>
+          <button type="button" class="plan-type-btn plan-chip-hypertrophy" onclick="selectPlanType('hypertrophy')">Hypertrophy</button>
+          <button type="button" class="plan-type-btn plan-chip-hiit" onclick="selectPlanType('hiit')">HIIT</button>
+          <button type="button" class="plan-type-btn plan-chip-run" onclick="selectPlanType('run')">Run</button>
+          <button type="button" class="plan-type-btn plan-chip-other" onclick="selectPlanType('other')">Other</button>
+        </div>
+        <div id="plan-note-row" class="plan-note-row hidden">
+          <input type="text" id="plan-notes" placeholder="Notes (optional)">
+          <button type="button" class="btn-outline btn-sm" onclick="addPlanEntry()">+ Add</button>
+        </div>
+        <div id="plan-entries" class="plan-entries"></div>
+        <button class="btn-primary btn-sm" onclick="savePlan()" id="btn-save-plan" style="display:none">Save Plan</button>
       </div>
     </div>
 
@@ -513,15 +531,7 @@
       renderPageCharts(activePageIndex);
       renderRecentWorkouts();
       leaderboardStale = true;
-      document.getElementById('weekly-plan').value = appData.weekly_plan || '';
-      const planText = (appData.weekly_plan || '').trim();
-      const planDisplay = document.getElementById('plan-display');
-      if (planText) {
-        document.getElementById('plan-display-text').textContent = planText;
-        planDisplay.classList.remove('hidden');
-      } else {
-        planDisplay.classList.add('hidden');
-      }
+      renderWeeklyPlan();
     }
 
     function renderPageCharts(index) {
@@ -603,7 +613,7 @@
       const ctx = document.getElementById('chart-workouts').getContext('2d');
       const weeks = getLast8Weeks();
       const types = ['power', 'hypertrophy', 'hiit', 'run', 'other'];
-      const colors = ['#e74c3c', '#4a9edd', '#8a8a8a', '#2ecc71', '#95a5a6'];
+      const colors = ['#e74c3c', '#4a9edd', '#8a8a8a', '#2ecc71', '#c9a84c'];
       const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
       const labels = [];
@@ -753,10 +763,12 @@
       const sorted = [...appData.sleeps].sort((a, b) => a.date.localeCompare(b.date));
       const sleepMap = {};
       sorted.forEach(s => {
-        if (!sleepMap[s.date]) sleepMap[s.date] = { hours: 0, id: s.id };
-        else sleepMap[s.date].hours += s.hours;
-        sleepMap[s.date].hours = s.hours;
-        sleepMap[s.date].id = s.id;
+        if (!sleepMap[s.date]) {
+          sleepMap[s.date] = { hours: s.hours, ids: [s.id] };
+        } else {
+          sleepMap[s.date].hours += s.hours;
+          sleepMap[s.date].ids.push(s.id);
+        }
       });
       const loggedDays = Object.keys(sleepMap).sort();
       const today = new Date();
@@ -771,7 +783,7 @@
       if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); } }
       const labels = days.map(d => fmtDate(d));
       const newDatasets = [
-        { label: 'Hours slept', data: days.map(d => sleepMap[d] ? sleepMap[d].hours : null), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0, fill: true, _ids: days.map(d => sleepMap[d] ? sleepMap[d].id : null), spanGaps: false, pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
+        { label: 'Hours slept', data: days.map(d => sleepMap[d] ? sleepMap[d].hours : null), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0, fill: true, _ids: days.map(d => sleepMap[d] ? sleepMap[d].ids : null), spanGaps: false, pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
         { label: '8h target', data: days.map(() => 8), borderColor: '#2ecc71', borderDash: [6, 3], pointRadius: 0 }
       ];
       if (charts.sleep) {
@@ -1023,11 +1035,45 @@
               (dur ? '<span class="wo-hist-dur">' + dur + '</span>' : '') +
               noteStr +
             '</div>' +
+            '<button class="btn-relog-wo" onclick="relogWorkout(' + w.id + ')" title="Re-log this workout">↻</button>' +
             '<button class="btn-delete-wo" onclick="deleteWorkout(' + w.id + ')" title="Delete workout">🗑</button>' +
           '</div>' +
           (exRows ? '<div class="wo-ex-list">' + exRows + '</div>' : '') +
         '</div>';
       }).join('');
+    }
+
+    function relogWorkout(id) {
+      const w = appData.workouts.find(x => x.id === id);
+      if (!w) return;
+      document.getElementById('wo-type').value = w.type;
+      document.getElementById('wo-date').value = todayFormatted();
+      document.getElementById('wo-duration').value = w.duration || '';
+      document.getElementById('wo-notes').value = w.notes || '';
+      document.getElementById('ex-rows').innerHTML = '';
+      updateExerciseMode();
+      const isRun = w.type === 'run';
+      (w.exercises || []).forEach(ex => {
+        addExerciseRow();
+        const row = document.querySelector('#ex-rows .ex-row:last-child');
+        row.querySelector('.ex-name').value = ex.name || '';
+        if (isRun) {
+          if (ex.distance_km) row.querySelector('.ex-dist').value = ex.distance_km;
+          if (ex.duration_seconds) row.querySelector('.ex-rundur').value = secsToMMSS(ex.duration_seconds);
+          if (ex.avg_heart_rate) row.querySelector('.ex-hr').value = ex.avg_heart_rate;
+          if (ex.avg_speed) row.querySelector('.ex-speed').value = ex.avg_speed;
+          if (ex.elevation_m) row.querySelector('.ex-elev').value = ex.elevation_m;
+        } else {
+          if (ex.sets) row.querySelector('.ex-sets').value = ex.sets;
+          if (ex.reps) row.querySelector('.ex-reps').value = ex.reps;
+          if (ex.weight_kg != null) row.querySelector('.ex-weight').value = ex.weight_kg;
+          if (ex.duration_seconds) row.querySelector('.ex-time').value = secsToMMSS(ex.duration_seconds);
+          if (ex.rest_seconds) row.querySelector('.ex-rest').value = secsToMMSS(ex.rest_seconds);
+        }
+      });
+      if (!w.exercises || !w.exercises.length) addExerciseRow();
+      document.getElementById('tab-workout').scrollIntoView({ behavior: 'smooth' });
+      showToast('Workout loaded — edit and save');
     }
 
     let leaderboardStale = true;
@@ -1204,14 +1250,130 @@
       await loadData();
     }
 
+    let currentPlanEntries = [];
+    let selectedPlanType = null;
+
+    function selectPlanType(type) {
+      selectedPlanType = type;
+      document.querySelectorAll('.plan-type-btn').forEach(btn => btn.classList.remove('active'));
+      const btn = document.querySelector('.plan-type-btn.plan-chip-' + type);
+      if (btn) btn.classList.add('active');
+      const row = document.getElementById('plan-note-row');
+      row.classList.remove('hidden');
+      document.getElementById('plan-notes').focus();
+    }
+
+    function addPlanEntry() {
+      if (!selectedPlanType) return;
+      const notes = document.getElementById('plan-notes').value.trim();
+      currentPlanEntries.push({ type: selectedPlanType, notes });
+      document.getElementById('plan-notes').value = '';
+      document.getElementById('plan-note-row').classList.add('hidden');
+      document.querySelectorAll('.plan-type-btn').forEach(btn => btn.classList.remove('active'));
+      selectedPlanType = null;
+      renderPlanEntries();
+    }
+
+    function removePlanEntry(i) {
+      currentPlanEntries.splice(i, 1);
+      renderPlanEntries();
+    }
+
+    function renderPlanEntries() {
+      const container = document.getElementById('plan-entries');
+      const saveBtn = document.getElementById('btn-save-plan');
+      if (!currentPlanEntries.length) {
+        container.innerHTML = '';
+        saveBtn.style.display = 'none';
+        return;
+      }
+      saveBtn.style.display = '';
+      container.innerHTML = currentPlanEntries.map((e, i) => {
+        const label = e.type.charAt(0).toUpperCase() + e.type.slice(1);
+        const noteStr = e.notes ? ' (' + esc(e.notes) + ')' : '';
+        return '<span class="plan-chip plan-chip-' + esc(e.type) + '">' +
+          esc(label) + noteStr +
+          '<button type="button" onclick="removePlanEntry(' + i + ')">×</button>' +
+        '</span>';
+      }).join('');
+    }
+
     async function savePlan() {
-      const text = document.getElementById('weekly-plan').value;
+      const json = JSON.stringify(currentPlanEntries);
       await fetch('/log/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_text: text })
+        body: JSON.stringify({ plan_text: json })
       });
+      appData.weekly_plan = json;
+      renderWeeklyPlan();
       showToast('Plan saved!');
+    }
+
+    function renderWeeklyPlan() {
+      const raw = (appData.weekly_plan || '').trim();
+      const planDisplay = document.getElementById('plan-display');
+      const prompt = document.getElementById('plan-prompt');
+      let entries = [];
+      try { entries = JSON.parse(raw); } catch(e) {}
+      if (!Array.isArray(entries)) entries = [];
+
+      currentPlanEntries = entries.map(e => ({ type: e.type || 'other', notes: e.notes || '' }));
+      renderPlanEntries();
+
+      if (!entries.length) {
+        planDisplay.classList.add('hidden');
+        const today = new Date();
+        if (today.getDay() === 0) {
+          prompt.classList.remove('hidden');
+        } else {
+          prompt.classList.add('hidden');
+        }
+        return;
+      }
+      prompt.classList.add('hidden');
+      planDisplay.classList.remove('hidden');
+
+      const today = new Date();
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay() + 1);
+      const weekStr = weekStart.toISOString().slice(0, 10);
+      const thisWeekWorkouts = appData.workouts.filter(w => w.date >= weekStr);
+
+      const typeCounts = {};
+      thisWeekWorkouts.forEach(w => {
+        typeCounts[w.type] = (typeCounts[w.type] || 0) + 1;
+      });
+
+      const planned = {};
+      entries.forEach(e => {
+        planned[e.type] = (planned[e.type] || 0) + 1;
+      });
+
+      let completedCount = 0;
+      const boxesHtml = entries.map(e => {
+        const label = e.type.charAt(0).toUpperCase() + e.type.slice(1);
+        const noteStr = e.notes ? ' (' + esc(e.notes) + ')' : '';
+        const done = (typeCounts[e.type] || 0) > 0;
+        if (done) {
+          typeCounts[e.type]--;
+          completedCount++;
+        }
+        const cls = done ? 'plan-box-done' : 'plan-box-pending';
+        return '<span class="plan-box ' + cls + ' plan-chip-' + esc(e.type) + '">' +
+          (done ? '✓ ' : '✗ ') + esc(label) + noteStr + '</span>';
+      }).join('');
+
+      document.getElementById('plan-boxes').innerHTML = boxesHtml;
+
+      const summaryEl = document.getElementById('plan-summary');
+      const day = today.getDay();
+      if (day === 0 || day === 6) {
+        summaryEl.classList.remove('hidden');
+        summaryEl.innerHTML = 'This week: <strong>' + completedCount + '/' + entries.length + ' completed</strong>';
+      } else {
+        summaryEl.classList.add('hidden');
+      }
     }
 
     function toggleSettings() {
