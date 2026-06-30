@@ -1798,7 +1798,6 @@
       }
       html += '</div></div></div>';
       document.body.insertAdjacentHTML('beforeend', html);
-      if (clickX != null) positionModalNearClick(document.body.lastElementChild, clickX, clickY);
     }
 
     async function removeExerciseFromView(workoutId, exIndex, btn) {
@@ -1904,7 +1903,6 @@
       }
       html += '</div></div></div>';
       document.body.insertAdjacentHTML('beforeend', html);
-      if (clickX != null) positionModalNearClick(document.body.lastElementChild, clickX, clickY);
     }
 
     function openNutritionSubtotalEdit(ids, label, clickX, clickY) {
