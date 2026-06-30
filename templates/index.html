@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="/static/style.css?v=39">
+  <link rel="stylesheet" href="/static/style.css?v=40">
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -31,7 +31,8 @@
         <select id="cmd-user-select" class="cmd-select hidden" onchange="switchCommanderUser()">
         </select>
         {% endif %}
-        <form action="/logout" method="POST" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-outline">Logout</button></form>
+        <button id="lang-toggle" class="btn-lang" onclick="toggleLang()" title="שנה שפה / Change language">EN</button>
+        <form action="/logout" method="POST" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-outline" data-i18n="Logout">Logout</button></form>
       </div>
     </div>
   </header>
@@ -40,28 +41,28 @@
   <div id="cmd-banner" class="cmd-banner hidden">
     <span id="cmd-banner-text">Viewing: —</span>
     <div id="cmd-user-actions" class="cmd-user-actions hidden">
-      <button class="btn-sm cmd-edit-btn" onclick="editCommanderUser()">✏️ Edit</button>
-      <button class="btn-sm cmd-delete-btn" onclick="deleteCommanderUser()">🗑️ Delete</button>
+      <button class="btn-sm cmd-edit-btn" onclick="editCommanderUser()">✏️ <span data-i18n="Edit">Edit</span></button>
+      <button class="btn-sm cmd-delete-btn" onclick="deleteCommanderUser()">🗑️ <span data-i18n="Delete">Delete</span></button>
     </div>
-    <button class="btn-sm cmd-exit-btn" onclick="deactivateCommander()">Exit Commander</button>
+    <button class="btn-sm cmd-exit-btn" onclick="deactivateCommander()" data-i18n="Exit Commander">Exit Commander</button>
   </div>
 
   <!-- Commander Edit Modal -->
   <div id="cmd-edit-modal" class="cmd-edit-modal hidden">
     <div class="cmd-edit-card">
-      <h3>Edit User</h3>
-      <label>Username <input type="text" id="cmd-edit-username"></label>
-      <label>Email <input type="email" id="cmd-edit-email"></label>
-      <label>Phase
+      <h3 data-i18n="Edit User">Edit User</h3>
+      <label><span data-i18n="Username">Username</span> <input type="text" id="cmd-edit-username"></label>
+      <label><span data-i18n="Email">Email</span> <input type="email" id="cmd-edit-email"></label>
+      <label><span data-i18n="Phase">Phase</span>
         <select id="cmd-edit-phase">
-          <option value="bulk">Bulk</option>
-          <option value="cut">Cut</option>
+          <option value="bulk" data-i18n="Bulk">Bulk</option>
+          <option value="cut" data-i18n="Cut">Cut</option>
         </select>
       </label>
-      <label>Weight target (kg) <input type="number" id="cmd-edit-target" step="0.1"></label>
+      <label><span data-i18n="Weight target (kg)">Weight target (kg)</span> <input type="number" id="cmd-edit-target" step="0.1"></label>
       <div class="cmd-edit-actions">
-        <button class="btn-primary btn-sm" onclick="saveCommanderUserEdit()">Save</button>
-        <button class="btn-discard btn-sm" onclick="closeEditModal()">Cancel</button>
+        <button class="btn-primary btn-sm" onclick="saveCommanderUserEdit()" data-i18n="Save">Save</button>
+        <button class="btn-discard btn-sm" onclick="closeEditModal()" data-i18n="Cancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -76,76 +77,76 @@
       <div class="phase-progress-bar"><div id="phase-progress-fill"></div></div>
       <span id="phase-progress-text"></span>
     </div>
-    <button class="btn-outline btn-sm" onclick="toggleSettings()">⚙ Settings</button>
+    <button class="btn-outline btn-sm" onclick="toggleSettings()">⚙ <span data-i18n="Settings">Settings</span></button>
   </div>
 
   <!-- Garmin Auth Failure Banner -->
   <div id="garmin-auth-banner" class="garmin-auth-banner hidden">
-    <span>⚠ Garmin connection lost — please reconnect</span>
-    <button class="btn-sm btn-outline" onclick="toggleSettings()">Reconnect</button>
+    <span data-i18n="⚠ Garmin connection lost — please reconnect">⚠ Garmin connection lost — please reconnect</span>
+    <button class="btn-sm btn-outline" onclick="toggleSettings()" data-i18n="Reconnect">Reconnect</button>
   </div>
 
   <!-- Settings Panel -->
   <div id="settings-panel" class="settings-panel hidden">
-    <h3>Settings</h3>
-    <label>Phase
+    <h3 data-i18n="Settings">Settings</h3>
+    <label><span data-i18n="Phase">Phase</span>
       <select id="settings-phase">
-        <option value="bulk">Bulk</option>
-        <option value="cut">Cut</option>
+        <option value="bulk" data-i18n="Bulk">Bulk</option>
+        <option value="cut" data-i18n="Cut">Cut</option>
       </select>
     </label>
-    <label>Weight target (kg)
+    <label><span data-i18n="Weight target (kg)">Weight target (kg)</span>
       <input type="number" id="settings-target" step="0.1" min="30" max="200">
     </label>
-    <button class="btn-primary btn-sm" onclick="saveSettings()">Save</button>
-    <button class="btn-outline btn-sm" onclick="toggleSettings()">Cancel</button>
+    <button class="btn-primary btn-sm" onclick="saveSettings()" data-i18n="Save">Save</button>
+    <button class="btn-outline btn-sm" onclick="toggleSettings()" data-i18n="Cancel">Cancel</button>
 
     <hr class="settings-divider">
     <h3>⌚ Garmin Connect</h3>
     <div id="garmin-unlinked">
-      <p class="garmin-desc">Link your Garmin account to auto-sync workouts, sleep & weight.</p>
-      <p class="garmin-desc garmin-dim" style="font-size:.85rem">If you have 2-step verification on your Garmin account, turn it off first: Garmin Connect app → Settings → Account → Two-Factor Authentication → Off. You can re-enable it after connecting.</p>
+      <p class="garmin-desc" data-i18n="Link your Garmin account to auto-sync workouts, sleep & weight.">Link your Garmin account to auto-sync workouts, sleep & weight.</p>
+      <p class="garmin-desc garmin-dim" style="font-size:.85rem" data-i18n="If you have 2-step verification on your Garmin account, turn it off first: Garmin Connect app → Settings → Account → Two-Factor Authentication → Off. You can re-enable it after connecting.">If you have 2-step verification on your Garmin account, turn it off first: Garmin Connect app → Settings → Account → Two-Factor Authentication → Off. You can re-enable it after connecting.</p>
       <div id="garmin-creds-step">
-        <label>Garmin Email <input type="email" id="garmin-email" placeholder="your@email.com"></label>
-        <label>Garmin Password <input type="password" id="garmin-password" placeholder="password"></label>
-        <button class="btn-primary btn-sm" id="garmin-link-btn" onclick="linkGarmin()">Connect Garmin</button>
+        <label><span data-i18n="Garmin Email">Garmin Email</span> <input type="email" id="garmin-email" placeholder="your@email.com"></label>
+        <label><span data-i18n="Garmin Password">Garmin Password</span> <input type="password" id="garmin-password" data-i18n-placeholder="password" placeholder="password"></label>
+        <button class="btn-primary btn-sm" id="garmin-link-btn" onclick="linkGarmin()" data-i18n="Connect Garmin">Connect Garmin</button>
       </div>
       <div id="garmin-link-error" class="garmin-error hidden"></div>
     </div>
     <div id="garmin-linked" class="hidden">
-      <p class="garmin-status-text">✅ Connected as <strong id="garmin-linked-email"></strong></p>
+      <p class="garmin-status-text">✅ <span data-i18n="Connected as">Connected as</span> <strong id="garmin-linked-email"></strong></p>
       <p id="garmin-last-sync-text" class="garmin-dim"></p>
-      <button class="btn-outline btn-sm garmin-unlink-btn" onclick="unlinkGarmin()">Disconnect Garmin</button>
+      <button class="btn-outline btn-sm garmin-unlink-btn" onclick="unlinkGarmin()" data-i18n="Disconnect Garmin">Disconnect Garmin</button>
     </div>
   </div>
 
   <!-- Weekly Plan Display -->
   <div id="plan-display" class="plan-display hidden">
-    <h3>Weekly Plan</h3>
+    <h3 data-i18n="Weekly Plan">Weekly Plan</h3>
     <div id="plan-boxes" class="plan-boxes"></div>
     <div id="plan-summary" class="plan-summary hidden"></div>
   </div>
 
   <!-- Sunday Prompt -->
   <div id="plan-prompt" class="plan-prompt hidden">
-    <span>📋 It's Sunday — set your training plan for the week!</span>
-    <button class="btn-outline btn-sm" onclick="document.getElementById('tab-workout').scrollIntoView({behavior:'smooth'})">Set Plan</button>
+    <span data-i18n="📋 It's Sunday — set your training plan for the week!">📋 It's Sunday — set your training plan for the week!</span>
+    <button class="btn-outline btn-sm" onclick="document.getElementById('tab-workout').scrollIntoView({behavior:'smooth'})" data-i18n="Set Plan">Set Plan</button>
   </div>
 
   <!-- Summary Bar -->
   <div class="summary-bar">
-    <div class="summary-card"><div class="summary-val" id="s-workouts">—</div><div class="summary-lbl">Workouts this week</div></div>
-    <div class="summary-card"><div class="summary-val" id="s-weight">—</div><div class="summary-lbl">Current weight (kg)</div></div>
-    <div class="summary-card"><div class="summary-val" id="s-sleep">—</div><div class="summary-lbl">Avg sleep (hrs)</div></div>
-    <div class="summary-card"><div class="summary-val" id="s-calories">—</div><div class="summary-lbl">Avg daily calories</div></div>
+    <div class="summary-card"><div class="summary-val" id="s-workouts">—</div><div class="summary-lbl" data-i18n="Workouts this week">Workouts this week</div></div>
+    <div class="summary-card"><div class="summary-val" id="s-weight">—</div><div class="summary-lbl" data-i18n="Current weight (kg)">Current weight (kg)</div></div>
+    <div class="summary-card"><div class="summary-val" id="s-sleep">—</div><div class="summary-lbl" data-i18n="Avg sleep (hrs)">Avg sleep (hrs)</div></div>
+    <div class="summary-card"><div class="summary-val" id="s-calories">—</div><div class="summary-lbl" data-i18n="Avg daily calories">Avg daily calories</div></div>
   </div>
 
   <!-- Page Tabs -->
   <div class="page-tabs">
-    <button class="page-tab active" onclick="scrollToPage(0)">Workouts</button>
-    <button class="page-tab" onclick="scrollToPage(1)">Weight</button>
-    <button class="page-tab" onclick="scrollToPage(2)">Sleep</button>
-    <button class="page-tab" onclick="scrollToPage(3)">Nutrition</button>
+    <button class="page-tab active" onclick="scrollToPage(0)" data-i18n="Workouts">Workouts</button>
+    <button class="page-tab" onclick="scrollToPage(1)" data-i18n="Weight">Weight</button>
+    <button class="page-tab" onclick="scrollToPage(2)" data-i18n="Sleep">Sleep</button>
+    <button class="page-tab" onclick="scrollToPage(3)" data-i18n="Nutrition">Nutrition</button>
     <button class="page-tab" onclick="scrollToPage(4)">🏆</button>
   </div>
 
@@ -155,115 +156,115 @@
     <!-- Page 1: Workouts -->
     <div class="page" id="page-workouts">
       <div class="chart-card">
-        <h3>Workouts by type (last 8 weeks)</h3>
-        <div id="hiit-warning" class="hiit-warning hidden">⚠ Low HIIT/Running this week</div>
+        <h3 data-i18n="Workouts by type (last 8 weeks)">Workouts by type (last 8 weeks)</h3>
+        <div id="hiit-warning" class="hiit-warning hidden" data-i18n="⚠ Low HIIT/Running this week">⚠ Low HIIT/Running this week</div>
         <canvas id="chart-workouts"></canvas>
       </div>
 
       <div id="garmin-sync-bar" class="garmin-sync-bar hidden">
-        <button class="btn-garmin-sync" id="btn-garmin-sync" onclick="garminSyncNow()">⌚ Sync Garmin</button>
+        <button class="btn-garmin-sync" id="btn-garmin-sync" onclick="garminSyncNow()" data-i18n="⌚ Sync Garmin">⌚ Sync Garmin</button>
         <span id="garmin-sync-msg" class="garmin-sync-msg"></span>
       </div>
 
       <div class="log-section">
-        <h2>Log Workout</h2>
+        <h2 data-i18n="Log Workout">Log Workout</h2>
         <div id="tab-workout" class="tab-content">
           <div class="form-row">
-            <label>Type
+            <label><span data-i18n="Type">Type</span>
               <select id="wo-type" onchange="updateExerciseMode()">
-                <option value="power">Power</option>
-                <option value="hypertrophy">Hypertrophy</option>
+                <option value="power" data-i18n="Power">Power</option>
+                <option value="hypertrophy" data-i18n="Hypertrophy">Hypertrophy</option>
                 <option value="hiit">HIIT</option>
-                <option value="run">Run</option>
-                <option value="other">Other</option>
+                <option value="run" data-i18n="Run">Run</option>
+                <option value="other" data-i18n="Other">Other</option>
               </select>
             </label>
-            <label>Total duration (min)
-              <input type="number" id="wo-duration" min="1" max="600" placeholder="optional">
+            <label><span data-i18n="Total duration (min)">Total duration (min)</span>
+              <input type="number" id="wo-duration" min="1" max="600" data-i18n-placeholder="optional" placeholder="optional">
             </label>
-            <label>Date
+            <label><span data-i18n="Date">Date</span>
               <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input" onclick="this.select()" oninput="autoFormatDate(this)" id="wo-date">
             </label>
-            <label>Session notes
-              <input type="text" id="wo-notes" placeholder="optional">
+            <label><span data-i18n="Session notes">Session notes</span>
+              <input type="text" id="wo-notes" data-i18n-placeholder="optional" placeholder="optional">
             </label>
           </div>
 
           <div class="ex-table-wrap" id="ex-table-wrap">
             <div class="ex-header" id="ex-header-str">
               <span class="ex-h-num">#</span>
-              <span class="ex-h-name">Exercise</span>
-              <span class="ex-h-col">Sets</span>
-              <span class="ex-h-col">Reps</span>
-              <span class="ex-h-col">Weight (kg)</span>
-              <span class="ex-h-col">Time</span>
-              <span class="ex-h-col">Rest</span>
+              <span class="ex-h-name" data-i18n="Exercise">Exercise</span>
+              <span class="ex-h-col" data-i18n="Sets">Sets</span>
+              <span class="ex-h-col" data-i18n="Reps">Reps</span>
+              <span class="ex-h-col" data-i18n="Weight (kg)">Weight (kg)</span>
+              <span class="ex-h-col" data-i18n="Time">Time</span>
+              <span class="ex-h-col" data-i18n="Rest">Rest</span>
               <span class="ex-h-del"></span>
             </div>
             <div class="ex-header hidden" id="ex-header-run">
               <span class="ex-h-num">#</span>
-              <span class="ex-h-name">Label</span>
-              <span class="ex-h-col">Dist (km)</span>
-              <span class="ex-h-col">Duration</span>
-              <span class="ex-h-col">Avg HR</span>
-              <span class="ex-h-col">Speed (min/km)</span>
-              <span class="ex-h-col">Elev (m)</span>
+              <span class="ex-h-name" data-i18n="Label">Label</span>
+              <span class="ex-h-col" data-i18n="Dist (km)">Dist (km)</span>
+              <span class="ex-h-col" data-i18n="Duration">Duration</span>
+              <span class="ex-h-col" data-i18n="Avg HR">Avg HR</span>
+              <span class="ex-h-col" data-i18n="Speed (min/km)">Speed (min/km)</span>
+              <span class="ex-h-col" data-i18n="Elev (m)">Elev (m)</span>
               <span class="ex-h-del"></span>
             </div>
             <div id="ex-rows"></div>
-            <button type="button" class="btn-add-ex" onclick="addExerciseRow()">+ Add exercise</button>
+            <button type="button" class="btn-add-ex" onclick="addExerciseRow()" data-i18n="+ Add exercise">+ Add exercise</button>
           </div>
 
           <div class="ex-actions">
-            <button type="button" class="btn-primary" onclick="saveWorkout()">Save Workout</button>
-            <button type="button" class="btn-discard" onclick="discardWorkout()">Discard</button>
+            <button type="button" class="btn-primary" onclick="saveWorkout()" data-i18n="Save Workout">Save Workout</button>
+            <button type="button" class="btn-discard" onclick="discardWorkout()" data-i18n="Discard">Discard</button>
           </div>
           <div id="wo-error" class="wo-error hidden"></div>
         </div>
       </div>
 
       <div class="log-section">
-        <h2>Recent Workouts</h2>
+        <h2 data-i18n="Recent Workouts">Recent Workouts</h2>
         <div id="recent-workouts"></div>
       </div>
 
       <div class="plan-section">
-        <h2>Weekly Training Plan</h2>
+        <h2 data-i18n="Weekly Training Plan">Weekly Training Plan</h2>
         <div class="plan-type-buttons">
-          <button type="button" class="plan-type-btn plan-chip-power" onclick="selectPlanType('power')">Power</button>
-          <button type="button" class="plan-type-btn plan-chip-hypertrophy" onclick="selectPlanType('hypertrophy')">Hypertrophy</button>
+          <button type="button" class="plan-type-btn plan-chip-power" onclick="selectPlanType('power')" data-i18n="Power">Power</button>
+          <button type="button" class="plan-type-btn plan-chip-hypertrophy" onclick="selectPlanType('hypertrophy')" data-i18n="Hypertrophy">Hypertrophy</button>
           <button type="button" class="plan-type-btn plan-chip-hiit" onclick="selectPlanType('hiit')">HIIT</button>
-          <button type="button" class="plan-type-btn plan-chip-run" onclick="selectPlanType('run')">Run</button>
-          <button type="button" class="plan-type-btn plan-chip-other" onclick="selectPlanType('other')">Other</button>
+          <button type="button" class="plan-type-btn plan-chip-run" onclick="selectPlanType('run')" data-i18n="Run">Run</button>
+          <button type="button" class="plan-type-btn plan-chip-other" onclick="selectPlanType('other')" data-i18n="Other">Other</button>
         </div>
         <div id="plan-note-row" class="plan-note-row hidden">
-          <input type="text" id="plan-notes" placeholder="Notes (optional)">
-          <button type="button" class="btn-outline btn-sm" onclick="addPlanEntry()">+ Add</button>
+          <input type="text" id="plan-notes" data-i18n-placeholder="Notes (optional)" placeholder="Notes (optional)">
+          <button type="button" class="btn-outline btn-sm" onclick="addPlanEntry()" data-i18n="+ Add">+ Add</button>
         </div>
         <div id="plan-entries" class="plan-entries"></div>
-        <button class="btn-primary btn-sm" onclick="savePlan()" id="btn-save-plan" style="display:none">Save Plan</button>
+        <button class="btn-primary btn-sm" onclick="savePlan()" id="btn-save-plan" style="display:none" data-i18n="Save Plan">Save Plan</button>
       </div>
     </div>
 
     <!-- Page 2: Weight -->
     <div class="page" id="page-weight">
       <div class="chart-card">
-        <h3>Weight over time</h3>
+        <h3 data-i18n="Weight over time">Weight over time</h3>
         <canvas id="chart-weight"></canvas>
       </div>
 
       <div class="log-section">
-        <h2>Log Weight</h2>
+        <h2 data-i18n="Log Weight">Log Weight</h2>
         <form onsubmit="logEntry(event, 'weight')">
           <div class="form-row">
-            <label>Weight (kg)
+            <label><span data-i18n="Weight (kg)">Weight (kg)</span>
               <input type="number" name="value_kg" step="0.1" min="30" max="250" required>
             </label>
-            <label>Date
+            <label><span data-i18n="Date">Date</span>
               <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input" onclick="this.select()" oninput="autoFormatDate(this)" name="date" id="date-weight">
             </label>
           </div>
-          <button type="submit" class="btn-primary">Log Weight</button>
+          <button type="submit" class="btn-primary" data-i18n="Log Weight">Log Weight</button>
         </form>
       </div>
     </div>
@@ -271,26 +272,26 @@
     <!-- Page 3: Sleep -->
     <div class="page" id="page-sleep">
       <div class="chart-card">
-        <h3>Sleep hours</h3>
+        <h3 data-i18n="Sleep hours">Sleep hours</h3>
         <canvas id="chart-sleep"></canvas>
       </div>
 
       <div class="log-section">
-        <h2>Log Sleep</h2>
+        <h2 data-i18n="Log Sleep">Log Sleep</h2>
         <form onsubmit="logSleep(event)">
           <div class="form-row">
-            <label>Bedtime
+            <label><span data-i18n="Bedtime">Bedtime</span>
               <input type="text" inputmode="numeric" name="bedtime" id="sleep-bedtime" required placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this); calcSleepHours()">
             </label>
-            <label>Wake time
+            <label><span data-i18n="Wake time">Wake time</span>
               <input type="text" inputmode="numeric" name="wake_time" id="sleep-waketime" required placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this); calcSleepHours()">
             </label>
-            <label>Date
+            <label><span data-i18n="Date">Date</span>
               <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input" onclick="this.select()" oninput="autoFormatDate(this)" name="date" id="date-sleep">
             </label>
           </div>
-          <div id="sleep-calc" class="sleep-calc hidden">Calculated: <strong id="sleep-calc-hours">—</strong> hours</div>
-          <button type="submit" class="btn-primary">Log Sleep</button>
+          <div id="sleep-calc" class="sleep-calc hidden"><span data-i18n="Calculated:">Calculated:</span> <strong id="sleep-calc-hours">—</strong> <span data-i18n="hours">hours</span></div>
+          <button type="submit" class="btn-primary" data-i18n="Log Sleep">Log Sleep</button>
         </form>
       </div>
     </div>
@@ -298,76 +299,76 @@
     <!-- Page 4: Calories & Protein -->
     <div class="page" id="page-calories">
       <div class="chart-card">
-        <h3>Daily Nutrition</h3>
+        <h3 data-i18n="Daily Nutrition">Daily Nutrition</h3>
         <canvas id="chart-calories"></canvas>
       </div>
 
       <div class="chart-card">
-        <h3>Weekly Averages</h3>
+        <h3 data-i18n="Weekly Averages">Weekly Averages</h3>
         <canvas id="chart-nutrition-weekly"></canvas>
       </div>
 
       <div class="log-section">
-        <h2>Log Nutrition</h2>
+        <h2 data-i18n="Log Nutrition">Log Nutrition</h2>
         <form onsubmit="logNutrition(event)">
           <div class="form-row">
-            <label>Type
+            <label><span data-i18n="Type">Type</span>
               <select id="nutr-type" onchange="updateNutritionFields()">
-                <option value="">— Select —</option>
-                <option value="high_protein">High Protein</option>
-                <option value="high_carb">High Carb</option>
-                <option value="balanced">Balanced</option>
-                <option value="supplement">Supplement</option>
+                <option value="" data-i18n="— Select —">— Select —</option>
+                <option value="high_protein" data-i18n="High Protein">High Protein</option>
+                <option value="high_carb" data-i18n="High Carb">High Carb</option>
+                <option value="balanced" data-i18n="Balanced">Balanced</option>
+                <option value="supplement" data-i18n="Supplement">Supplement</option>
               </select>
             </label>
           </div>
           <!-- High Protein: protein only -->
           <div id="nutr-field-high_protein" class="nutr-field hidden">
             <div class="form-row">
-              <label>Protein (g) <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
-              <label>Date <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
+              <label><span data-i18n="Protein (g)">Protein (g)</span> <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
+              <label><span data-i18n="Date">Date</span> <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
             </div>
           </div>
           <!-- High Carb: carbs only -->
           <div id="nutr-field-high_carb" class="nutr-field hidden">
             <div class="form-row">
-              <label>Carbs (g) <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
-              <label>Date <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
+              <label><span data-i18n="Carbs (g)">Carbs (g)</span> <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
+              <label><span data-i18n="Date">Date</span> <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
             </div>
           </div>
           <!-- Balanced: protein + carbs -->
           <div id="nutr-field-balanced" class="nutr-field hidden">
             <div class="form-row">
-              <label>Protein (g) <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
-              <label>Carbs (g) <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
-              <label>Date <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
+              <label><span data-i18n="Protein (g)">Protein (g)</span> <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
+              <label><span data-i18n="Carbs (g)">Carbs (g)</span> <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
+              <label><span data-i18n="Date">Date</span> <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
             </div>
           </div>
           <!-- Supplement: checkboxes to pick which, then fields -->
           <div id="nutr-field-supplement" class="nutr-field hidden">
             <div class="form-row supp-checks">
-              <label class="supp-check"><input type="checkbox" id="supp-protein" onchange="updateSuppFields()"> Protein</label>
-              <label class="supp-check"><input type="checkbox" id="supp-creatine" onchange="updateSuppFields()"> Creatine</label>
-              <label class="supp-check"><input type="checkbox" id="supp-carbs" onchange="updateSuppFields()"> Carbs</label>
+              <label class="supp-check"><input type="checkbox" id="supp-protein" onchange="updateSuppFields()"> <span data-i18n="Protein">Protein</span></label>
+              <label class="supp-check"><input type="checkbox" id="supp-creatine" onchange="updateSuppFields()"> <span data-i18n="Creatine">Creatine</span></label>
+              <label class="supp-check"><input type="checkbox" id="supp-carbs" onchange="updateSuppFields()"> <span data-i18n="Carbs">Carbs</span></label>
             </div>
             <div class="form-row">
-              <label id="supp-protein-field" class="hidden">Protein (g) <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
-              <label id="supp-creatine-field" class="hidden">Creatine (g) <input type="number" class="nutr-in-creatine" step="0.1" min="0"></label>
-              <label id="supp-carbs-field" class="hidden">Carbs (g) <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
-              <label>Date <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
+              <label id="supp-protein-field" class="hidden"><span data-i18n="Protein (g)">Protein (g)</span> <input type="number" class="nutr-in-protein" step="0.1" min="0"></label>
+              <label id="supp-creatine-field" class="hidden"><span data-i18n="Creatine (g)">Creatine (g)</span> <input type="number" class="nutr-in-creatine" step="0.1" min="0"></label>
+              <label id="supp-carbs-field" class="hidden"><span data-i18n="Carbs (g)">Carbs (g)</span> <input type="number" class="nutr-in-carbs" step="0.1" min="0"></label>
+              <label><span data-i18n="Date">Date</span> <input type="text" inputmode="numeric" placeholder="DD/MM/YY" maxlength="8" class="date-input nutr-in-date" onclick="this.select()" oninput="autoFormatDate(this)"></label>
             </div>
           </div>
           <div id="nutr-submit" class="hidden">
-            <button type="submit" class="btn-primary">Log</button>
+            <button type="submit" class="btn-primary" data-i18n="Log">Log</button>
           </div>
         </form>
       </div>
     </div>
 
-    <!-- Page 5: Leaderboard (placeholder, filled in Feature 5) -->
+    <!-- Page 5: Leaderboard -->
     <div class="page" id="page-leaderboard">
       <div class="log-section">
-        <h2 id="lb-title">Leaderboard</h2>
+        <h2 id="lb-title" data-i18n="Leaderboard">Leaderboard</h2>
         <div id="lb-content" class="lb-grid"></div>
       </div>
     </div>
@@ -377,6 +378,201 @@
   <div id="toast" class="toast hidden"></div>
 
   <script>
+    // ── i18n ──────────────────────────────────────────────────
+    const TRANSLATIONS = {
+      'Logout': 'התנתקות',
+      'Settings': 'הגדרות',
+      'Commander mode': 'מצב מפקד',
+      'Edit': 'עריכה',
+      'Delete': 'מחיקה',
+      'Exit Commander': 'יציאה ממצב מפקד',
+      'Edit User': 'עריכת משתמש',
+      'Username': 'שם משתמש',
+      'Email': 'אימייל',
+      'Phase': 'שלב',
+      'Bulk': 'מאסה',
+      'Cut': 'חיתוך',
+      'Weight target (kg)': 'יעד משקל (kg)',
+      'Save': 'שמירה',
+      'Cancel': 'ביטול',
+      'Bulk Phase': 'שלב מאסה',
+      'Cut Phase': 'שלב חיתוך',
+      '⚠ Garmin connection lost — please reconnect': '⚠ החיבור ל-Garmin נותק — יש להתחבר מחדש',
+      'Reconnect': 'חיבור מחדש',
+      'Link your Garmin account to auto-sync workouts, sleep & weight.': 'קשרו את חשבון ה-Garmin שלכם לסנכרון אוטומטי של אימונים, שינה ומשקל.',
+      'If you have 2-step verification on your Garmin account, turn it off first: Garmin Connect app → Settings → Account → Two-Factor Authentication → Off. You can re-enable it after connecting.': 'אם יש לכם אימות דו-שלבי בחשבון ה-Garmin, כבו אותו תחילה: אפליקציית Garmin Connect ← Settings ← Account ← Two-Factor Authentication ← Off. ניתן להפעיל אותו מחדש לאחר החיבור.',
+      'Garmin Email': 'אימייל Garmin',
+      'Garmin Password': 'סיסמת Garmin',
+      'password': 'סיסמה',
+      'Connect Garmin': 'חברו Garmin',
+      'Connected as': 'מחובר כ:',
+      'Last sync:': 'סנכרון אחרון:',
+      'Not synced yet': 'טרם סונכרן',
+      'Disconnect Garmin': 'נתקו Garmin',
+      'Weekly Plan': 'תוכנית שבועית',
+      '📋 It\'s Sunday — set your training plan for the week!': '📋 יום ראשון — הגדירו את תוכנית האימונים לשבוע!',
+      'Set Plan': 'קבעו תוכנית',
+      'Save Plan': 'שמירת תוכנית',
+      'Workouts this week': 'אימונים השבוע',
+      'Current weight (kg)': 'משקל נוכחי (kg)',
+      'Avg sleep (hrs)': 'שינה ממוצעת (שעות)',
+      'Avg daily calories': 'קלוריות יומיות ממוצעות',
+      'Workouts': 'אימונים',
+      'Weight': 'משקל',
+      'Sleep': 'שינה',
+      'Nutrition': 'תזונה',
+      'Workouts by type (last 8 weeks)': 'אימונים לפי סוג (8 שבועות אחרונים)',
+      '⚠ Low HIIT/Running this week': '⚠ מעט HIIT/ריצה השבוע',
+      '⌚ Sync Garmin': '⌚ סנכרן Garmin',
+      'Log Workout': 'תיעוד אימון',
+      'Type': 'סוג',
+      'Total duration (min)': 'משך כולל (דקות)',
+      'Date': 'תאריך',
+      'Session notes': 'הערות אימון',
+      'optional': 'אופציונלי',
+      'Power': 'כוח',
+      'Hypertrophy': 'היפרטרופיה',
+      'Run': 'ריצה',
+      'Other': 'אחר',
+      'Exercise': 'תרגיל',
+      'Sets': 'סטים',
+      'Reps': 'חזרות',
+      'Weight (kg)': 'משקל (kg)',
+      'Time': 'זמן',
+      'Rest': 'מנוחה',
+      'Label': 'תווית',
+      'Dist (km)': 'מרחק (km)',
+      'Duration': 'משך',
+      'Avg HR': 'HR ממוצע',
+      'Speed (min/km)': 'קצב (min/km)',
+      'Elev (m)': 'עלייה (מ\')',
+      '+ Add exercise': '+ הוסף תרגיל',
+      'Save Workout': 'שמור אימון',
+      'Discard': 'בטל',
+      'Recent Workouts': 'אימונים אחרונים',
+      'No workouts logged yet.': 'לא תועד אימון עדיין.',
+      'Re-log this workout': 'תעד אימון זה מחדש',
+      'Delete workout': 'מחק אימון',
+      'Weekly Training Plan': 'תוכנית אימונים שבועית',
+      'Notes (optional)': 'הערות (אופציונלי)',
+      '+ Add': '+ הוסף',
+      'Weight over time': 'משקל לאורך זמן',
+      'Log Weight': 'תיעוד משקל',
+      'Sleep hours': 'שעות שינה',
+      'Log Sleep': 'תיעוד שינה',
+      'Bedtime': 'שעת שינה',
+      'Wake time': 'שעת קימה',
+      'Calculated:': 'מחושב:',
+      'hours': 'שעות',
+      'Daily Nutrition': 'תזונה יומית',
+      'Weekly Averages': 'ממוצעים שבועיים',
+      'Log Nutrition': 'תיעוד תזונה',
+      '— Select —': '— בחירה —',
+      'High Protein': 'עתיר חלבון',
+      'High Carb': 'עתיר פחמימות',
+      'Balanced': 'מאוזן',
+      'Supplement': 'תוסף',
+      'Protein (g)': 'חלבון (g)',
+      'Carbs (g)': 'פחמימות (g)',
+      'Creatine (g)': 'קראטין (g)',
+      'Protein': 'חלבון',
+      'Creatine': 'קראטין',
+      'Carbs': 'פחמימות',
+      'Log': 'תיעוד',
+      'Leaderboard': 'לוח תוצאות',
+      'No data yet': 'אין נתונים עדיין',
+      'Commander mode activated': 'מצב מפקד הופעל',
+      'Wrong code': 'קוד שגוי',
+      'Commander mode deactivated': 'מצב מפקד כובה',
+      'User deleted': 'משתמש נמחק',
+      'Failed to delete': 'המחיקה נכשלה',
+      'User updated': 'משתמש עודכן',
+      'Failed to update': 'העדכון נכשל',
+      'Logged!': 'תועד!',
+      'Plan saved!': 'התוכנית נשמרה!',
+      'Settings saved!': 'ההגדרות נשמרו!',
+      'Workout loaded — edit and save': 'האימון נטען — ערכו ושמרו',
+      'Workout deleted.': 'האימון נמחק.',
+      'Could not delete workout.': 'לא ניתן למחוק את האימון.',
+      'Deleted!': 'נמחק!',
+      'Could not delete.': 'לא ניתן למחוק.',
+      'Updated!': 'עודכן!',
+      'Could not update.': 'לא ניתן לעדכן.',
+      'Garmin connected!': '!Garmin חובר',
+      'Garmin disconnected': 'Garmin נותק',
+      'Garmin synced!': '!Garmin סונכרן',
+      'Exercise removed!': 'התרגיל הוסר!',
+      'Could not remove exercise.': 'לא ניתן להסיר את התרגיל.',
+      'Workout saved!': 'האימון נשמר!',
+      'Sleep logged!': 'השינה תועדה!',
+      'Nutrition logged!': 'התזונה תועדה!',
+      'Delete this workout?': 'למחוק את האימון?',
+      'Delete this entry?': 'למחוק את הרשומה?',
+      'Remove this exercise?': 'להסיר את התרגיל?',
+      'Disconnect Garmin? Your synced workouts will remain.': 'לנתק את Garmin? האימונים המסונכרנים יישמרו.',
+      'View': 'צפייה',
+      '+ Exercise': '+ תרגיל',
+      'Hours': 'שעות',
+      'Wake': 'שעת קימה',
+      'Notes': 'הערות',
+      'Exercises': 'תרגילים',
+      'm elev': 'מ\' עלייה',
+      'sets': 'סטים',
+      'reps': 'חזרות',
+      'rest': 'מנוחה',
+      'Some values are out of range (highlighted red). Please correct them.': 'חלק מהערכים מחוץ לטווח (מסומנים באדום). יש לתקן אותם.',
+      'Failed to save. Please try again.': 'השמירה נכשלה. יש לנסות שוב.',
+      'Please enter bedtime and wake time': 'יש להזין שעת שינה ושעת קימה',
+      'Viewing:': 'צופה ב:',
+      '— Select user —': '— בחר משתמש —',
+      'Delete user "X" and ALL their data? This cannot be undone.': 'למחוק את המשתמש "X" וכל הנתונים שלו? פעולה זו אינה הפיכה.',
+      'Enter email and password': 'יש להזין אימייל וסיסמה',
+      'Your Garmin account has 2-step verification enabled. Please disable it in the Garmin Connect app (Settings → Account → Two-Factor Authentication → Off), then try again.': 'חשבון ה-Garmin שלך מוגדר עם אימות דו-שלבי. יש לכבות אותו באפליקציית Garmin Connect (Settings ← Account ← Two-Factor Authentication ← Off) ולנסות שוב.',
+      'Network error': 'שגיאת רשת',
+      'Syncing...': 'מסנכרן...',
+      'e.g. Bench press': 'לדוג\'. לחיצת חזה',
+      'e.g. Night run': 'לדוג\'. ריצת לילה',
+      'Time (M:SS)': 'זמן (M:SS)',
+      'Rest (M:SS)': 'מנוחה (M:SS)',
+      'Duration (M:SS)': 'משך (M:SS)',
+      'Avg HR (bpm)': 'HR ממוצע (bpm)',
+      'Pace (min/km)': 'קצב (min/km)',
+      'Calories': 'קלוריות',
+      'Duration (min)': 'משך (דקות)',
+      'This week:': 'השבוע:',
+      'completed': 'הושלמו',
+      'Connecting...': 'מתחבר...',
+    };
+
+    let currentLang = localStorage.getItem('lang') || 'en';
+
+    function t(key) {
+      return currentLang === 'he' ? (TRANSLATIONS[key] || key) : key;
+    }
+
+    function applyLang() {
+      const isHe = currentLang === 'he';
+      document.documentElement.lang = isHe ? 'he' : 'en';
+      document.documentElement.dir = isHe ? 'rtl' : 'ltr';
+      document.getElementById('lang-toggle').textContent = isHe ? 'EN' : 'HE';
+
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        el.textContent = t(key);
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
+      });
+    }
+
+    function toggleLang() {
+      currentLang = currentLang === 'en' ? 'he' : 'en';
+      localStorage.setItem('lang', currentLang);
+      applyLang();
+      renderAll();
+    }
+    // ── end i18n ──────────────────────────────────────────────
+
     let appData = {};
     function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
@@ -414,9 +610,9 @@
         document.getElementById('cmd-password').value = '';
         await loadCommanderUsers();
         document.getElementById('cmd-user-select').classList.remove('hidden');
-        showToast('Commander mode activated');
+        showToast(t('Commander mode activated'));
       } else {
-        showToast('Wrong code');
+        showToast(t('Wrong code'));
       }
     }
 
@@ -428,7 +624,7 @@
       document.getElementById('cmd-user-select').classList.add('hidden');
       document.getElementById('cmd-banner').classList.add('hidden');
       document.getElementById('cmd-user-actions').classList.add('hidden');
-      showToast('Commander mode deactivated');
+      showToast(t('Commander mode deactivated'));
       await loadData();
     }
 
@@ -450,7 +646,7 @@
       }
       commanderUserId = uid;
       const user = commanderUsers.find(u => u.id == uid);
-      document.getElementById('cmd-banner-text').textContent = 'Viewing: ' + user.username + ' (' + user.email + ')';
+      document.getElementById('cmd-banner-text').textContent = t('Viewing:') + ' ' + user.username + ' (' + user.email + ')';
       document.getElementById('cmd-banner').classList.remove('hidden');
       document.getElementById('cmd-user-actions').classList.remove('hidden');
       await loadData();
@@ -459,10 +655,10 @@
     async function deleteCommanderUser() {
       if (!commanderUserId) return;
       const user = commanderUsers.find(u => u.id == commanderUserId);
-      if (!confirm('Delete user "' + user.username + '" and ALL their data? This cannot be undone.')) return;
+      if (!confirm(t('Delete user "X" and ALL their data? This cannot be undone.').replace('X', user.username))) return;
       const res = await fetch('/commander/user/' + commanderUserId, { method: 'DELETE' });
       if (res.ok) {
-        showToast('User deleted');
+        showToast(t('User deleted'));
         commanderUserId = null;
         document.getElementById('cmd-banner').classList.add('hidden');
         document.getElementById('cmd-user-select').value = '';
@@ -470,7 +666,7 @@
         await loadData();
       } else {
         const err = await res.json();
-        showToast(err.status || 'Failed to delete');
+        showToast(err.status || t('Failed to delete'));
       }
     }
 
@@ -502,15 +698,15 @@
       });
       if (res.ok) {
         closeEditModal();
-        showToast('User updated');
+        showToast(t('User updated'));
         await loadCommanderUsers();
         const user = commanderUsers.find(u => u.id == commanderUserId);
         if (user) {
-          document.getElementById('cmd-banner-text').textContent = 'Viewing: ' + data.username + ' (' + data.email + ')';
+          document.getElementById('cmd-banner-text').textContent = t('Viewing:') + ' ' + data.username + ' (' + data.email + ')';
         }
         await loadData();
       } else {
-        showToast('Failed to update');
+        showToast(t('Failed to update'));
       }
     }
 
@@ -551,7 +747,7 @@
       const ptext = document.getElementById('phase-progress-text');
       const banner = document.getElementById('phase-banner');
 
-      label.textContent = phase === 'bulk' ? 'Bulk Phase' : 'Cut Phase';
+      label.textContent = phase === 'bulk' ? t('Bulk Phase') : t('Cut Phase');
       banner.className = 'phase-banner ' + phase;
 
       if (weights.length > 0) {
@@ -995,7 +1191,7 @@
       const container = document.getElementById('recent-workouts');
       const sorted = [...appData.workouts].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
       if (!sorted.length) {
-        container.innerHTML = '<p class="no-workouts">No workouts logged yet.</p>';
+        container.innerHTML = '<p class="no-workouts">' + t('No workouts logged yet.') + '</p>';
         return;
       }
       container.innerHTML = sorted.map(w => {
@@ -1073,7 +1269,7 @@
       });
       if (!w.exercises || !w.exercises.length) addExerciseRow();
       document.getElementById('tab-workout').scrollIntoView({ behavior: 'smooth' });
-      showToast('Workout loaded — edit and save');
+      showToast(t('Workout loaded — edit and save'));
     }
 
     let leaderboardStale = true;
@@ -1081,7 +1277,7 @@
       try {
         const resp = await fetch('/leaderboard');
         const data = await resp.json();
-        document.getElementById('lb-title').textContent = 'Leaderboard — ' + data.month;
+        document.getElementById('lb-title').textContent = t('Leaderboard') + ' — ' + data.month;
 
         const medals = ['🥇', '🥈', '🥉'];
         const catIcons = ['👑', '🌪️', '🏗️', '😴', '⚙️'];
@@ -1092,7 +1288,7 @@
             return '<li>' + medal + '<span class="lb-name">' + esc(r.username) + '</span><span class="lb-val">' + r.value + '</span></li>';
           }).join('');
           return '<div class="lb-card"><h3>' + catIcons[ci] + ' ' + cat.name + '</h3><p class="lb-sub">' + cat.subtitle + '</p>' +
-            (rows ? '<ol>' + rows + '</ol>' : '<p class="lb-empty">No data yet</p>') + '</div>';
+            (rows ? '<ol>' + rows + '</ol>' : '<p class="lb-empty">' + t('No data yet') + '</p>') + '</div>';
         }).join('');
       } catch (e) {
         console.error('Leaderboard load failed:', e);
@@ -1100,14 +1296,14 @@
     }
 
     async function deleteWorkout(id) {
-      if (!confirm('Delete this workout?')) return;
+      if (!confirm(t('Delete this workout?'))) return;
       const res = await fetch('/delete/workout/' + id, { method: 'DELETE' });
       if (res.ok) {
         document.getElementById('wo-' + id)?.remove();
-        showToast('Workout deleted.');
+        showToast(t('Workout deleted.'));
         await loadData();
       } else {
-        showToast('Could not delete workout.');
+        showToast(t('Could not delete workout.'));
       }
     }
 
@@ -1164,7 +1360,7 @@
       });
       form.reset();
       setDefaultDates();
-      showToast('Logged!');
+      showToast(t('Logged!'));
       await loadData();
     }
 
@@ -1208,7 +1404,7 @@
       document.getElementById('nutr-submit').classList.add('hidden');
       updateSuppFields();
       setDefaultDates();
-      showToast('Nutrition logged!');
+      showToast(t('Nutrition logged!'));
       await loadData();
     }
 
@@ -1230,7 +1426,7 @@
       e.preventDefault();
       const bed = document.getElementById('sleep-bedtime').value;
       const wake = document.getElementById('sleep-waketime').value;
-      if (!bed || !wake) { showToast('Please enter bedtime and wake time'); return; }
+      if (!bed || !wake) { showToast(t('Please enter bedtime and wake time')); return; }
       const [bh, bm] = bed.split(':').map(Number);
       const [wh, wm] = wake.split(':').map(Number);
       let bedMins = bh * 60 + bm;
@@ -1246,7 +1442,7 @@
       e.target.reset();
       document.getElementById('sleep-calc').classList.add('hidden');
       setDefaultDates();
-      showToast('Sleep logged! (' + hours + 'h)');
+      showToast(t('Sleep logged!') + ' (' + hours + 'h)');
       await loadData();
     }
 
@@ -1307,7 +1503,7 @@
       });
       appData.weekly_plan = json;
       renderWeeklyPlan();
-      showToast('Plan saved!');
+      showToast(t('Plan saved!'));
     }
 
     function renderWeeklyPlan() {
@@ -1370,7 +1566,7 @@
       const day = today.getDay();
       if (day === 0 || day === 6) {
         summaryEl.classList.remove('hidden');
-        summaryEl.innerHTML = 'This week: <strong>' + completedCount + '/' + entries.length + ' completed</strong>';
+        summaryEl.innerHTML = t('This week:') + ' <strong>' + completedCount + '/' + entries.length + ' ' + t('completed') + '</strong>';
       } else {
         summaryEl.classList.add('hidden');
       }
@@ -1389,7 +1585,7 @@
         body: JSON.stringify({ phase, weight_target_kg: target })
       });
       toggleSettings();
-      showToast('Settings saved!');
+      showToast(t('Settings saved!'));
       await loadData();
     }
 
@@ -1477,12 +1673,12 @@
 
       const btnView = document.createElement('button');
       btnView.className = 'chart-popup-item popup-view';
-      btnView.textContent = 'View';
+      btnView.textContent = t('View');
       btnView.onclick = (e) => { e.stopPropagation(); removePopup(); openViewModal(id, entryType, x, y, nutrLabel); };
 
       const btnEdit = document.createElement('button');
       btnEdit.className = 'chart-popup-item popup-edit';
-      btnEdit.textContent = 'Edit';
+      btnEdit.textContent = t('Edit');
       btnEdit.onclick = (e) => { e.stopPropagation(); removePopup(); openEditModal(id, entryType, x, y, nutrLabel); };
 
       const btnDel = document.createElement('button');
@@ -1490,15 +1686,15 @@
       btnDel.textContent = '✕';
       btnDel.onclick = async (e) => {
         e.stopPropagation();
-        if (!confirm('Delete this entry?')) return;
+        if (!confirm(t('Delete this entry?'))) return;
         removePopup();
         if (Array.isArray(id)) {
           await Promise.all(id.map(eid => fetch('/delete/' + entryType + '/' + eid, { method: 'DELETE' })));
-          showToast('Deleted!'); await loadData();
+          showToast(t('Deleted!')); await loadData();
         } else {
           const res = await fetch('/delete/' + entryType + '/' + id, { method: 'DELETE' });
-          if (res.ok) { showToast('Deleted!'); await loadData(); }
-          else showToast('Could not delete.');
+          if (res.ok) { showToast(t('Deleted!')); await loadData(); }
+          else showToast(t('Could not delete.'));
         }
       };
 
@@ -1606,7 +1802,7 @@
     }
 
     async function removeExerciseFromView(workoutId, exIndex, btn) {
-      if (!confirm('Remove this exercise?')) return;
+      if (!confirm(t('Remove this exercise?'))) return;
       const entry = findEntry(workoutId, 'workout');
       if (!entry) return;
       const remaining = entry.exercises.filter((_, i) => i !== exIndex);
@@ -1624,10 +1820,10 @@
       });
       if (res.ok) {
         btn.closest('.view-exercise').remove();
-        showToast('Exercise removed!');
+        showToast(t('Exercise removed!'));
         await loadData();
       } else {
-        showToast('Could not remove exercise.');
+        showToast(t('Could not remove exercise.'));
       }
     }
 
@@ -1639,39 +1835,39 @@
       if (!entry) return;
       let html = '<div class="entry-modal-backdrop" id="edit-backdrop"><div class="entry-modal" onclick="event.stopPropagation()">';
       html += '<button class="entry-modal-close" onclick="this.closest(\'.entry-modal-backdrop\').remove()">✕</button>';
-      html += '<h3>Edit ' + entryType.charAt(0).toUpperCase() + entryType.slice(1) + '</h3>';
+      html += '<h3>' + t('Edit') + ' ' + entryType.charAt(0).toUpperCase() + entryType.slice(1) + '</h3>';
       html += '<div class="entry-modal-body">';
 
       if (entryType === 'weight') {
-        html += '<label>Weight (kg)<input type="number" step="0.1" id="edit-weight-val" value="' + entry.value_kg + '"></label>';
-        html += '<label>Date<input type="text" id="edit-weight-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
+        html += '<label>' + t('Weight (kg)') + '<input type="number" step="0.1" id="edit-weight-val" value="' + entry.value_kg + '"></label>';
+        html += '<label>' + t('Date') + '<input type="text" id="edit-weight-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
       } else if (entryType === 'sleep') {
-        html += '<label>Bedtime<input type="text" inputmode="numeric" id="edit-sleep-bed" value="' + esc(entry.bedtime || '') + '" placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this)"></label>';
-        html += '<label>Wake time<input type="text" inputmode="numeric" id="edit-sleep-wake" value="' + esc(entry.wake_time || '') + '" placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this)"></label>';
-        html += '<label>Date<input type="text" id="edit-sleep-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
+        html += '<label>' + t('Bedtime') + '<input type="text" inputmode="numeric" id="edit-sleep-bed" value="' + esc(entry.bedtime || '') + '" placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this)"></label>';
+        html += '<label>' + t('Wake time') + '<input type="text" inputmode="numeric" id="edit-sleep-wake" value="' + esc(entry.wake_time || '') + '" placeholder="HH:MM" maxlength="5" oninput="autoFormatTime(this)"></label>';
+        html += '<label>' + t('Date') + '<input type="text" id="edit-sleep-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
       } else if (entryType === 'nutrition') {
-        html += '<label>Calories<input type="number" id="edit-nutr-cal" value="' + (entry.calories ?? '') + '"></label>';
-        html += '<label>Protein (g)<input type="number" step="0.1" id="edit-nutr-prot" value="' + (entry.protein ?? '') + '"></label>';
-        html += '<label>Carbs (g)<input type="number" step="0.1" id="edit-nutr-carbs" value="' + (entry.carbs ?? '') + '"></label>';
-        html += '<label>Creatine (g)<input type="number" step="0.1" id="edit-nutr-creat" value="' + (entry.creatine ?? '') + '"></label>';
-        html += '<label>Date<input type="text" id="edit-nutr-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
+        html += '<label>' + t('Calories') + '<input type="number" id="edit-nutr-cal" value="' + (entry.calories ?? '') + '"></label>';
+        html += '<label>' + t('Protein (g)') + '<input type="number" step="0.1" id="edit-nutr-prot" value="' + (entry.protein ?? '') + '"></label>';
+        html += '<label>' + t('Carbs (g)') + '<input type="number" step="0.1" id="edit-nutr-carbs" value="' + (entry.carbs ?? '') + '"></label>';
+        html += '<label>' + t('Creatine (g)') + '<input type="number" step="0.1" id="edit-nutr-creat" value="' + (entry.creatine ?? '') + '"></label>';
+        html += '<label>' + t('Date') + '<input type="text" id="edit-nutr-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
       } else if (entryType === 'workout') {
-        html += '<label>Type<select id="edit-wo-type"><option value="power"' + (entry.type==='power'?' selected':'') + '>Power</option><option value="hypertrophy"' + (entry.type==='hypertrophy'?' selected':'') + '>Hypertrophy</option><option value="hiit"' + (entry.type==='hiit'?' selected':'') + '>HIIT</option><option value="run"' + (entry.type==='run'?' selected':'') + '>Run</option><option value="other"' + (entry.type==='other'?' selected':'') + '>Other</option></select></label>';
-        html += '<label>Duration (min)<input type="number" id="edit-wo-dur" value="' + (entry.duration || '') + '"></label>';
-        html += '<label>Notes<input type="text" id="edit-wo-notes" value="' + (entry.notes || '').replace(/"/g, '&quot;') + '"></label>';
-        html += '<label>Date<input type="text" id="edit-wo-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
-        html += '<h4>Exercises</h4><div id="edit-wo-exercises">';
+        html += '<label>' + t('Type') + '<select id="edit-wo-type"><option value="power"' + (entry.type==='power'?' selected':'') + '>Power</option><option value="hypertrophy"' + (entry.type==='hypertrophy'?' selected':'') + '>Hypertrophy</option><option value="hiit"' + (entry.type==='hiit'?' selected':'') + '>HIIT</option><option value="run"' + (entry.type==='run'?' selected':'') + '>Run</option><option value="other"' + (entry.type==='other'?' selected':'') + '>Other</option></select></label>';
+        html += '<label>' + t('Duration (min)') + '<input type="number" id="edit-wo-dur" value="' + (entry.duration || '') + '"></label>';
+        html += '<label>' + t('Notes') + '<input type="text" id="edit-wo-notes" value="' + (entry.notes || '').replace(/"/g, '&quot;') + '"></label>';
+        html += '<label>' + t('Date') + '<input type="text" id="edit-wo-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(entry.date) + '" oninput="autoFormatDate(this)"></label>';
+        html += '<h4>' + t('Exercises') + '</h4><div id="edit-wo-exercises">';
         const isRun = entry.type === 'run';
         (entry.exercises || []).forEach((ex, i) => {
           html += buildEditExHTML(ex, i, isRun);
         });
         html += '</div>';
-        html += '<button type="button" class="btn btn-secondary" onclick="addEditExRow()">+ Exercise</button>';
+        html += '<button type="button" class="btn btn-secondary" onclick="addEditExRow()">' + t('+ Exercise') + '</button>';
       }
 
       html += '<div class="entry-modal-actions">';
-      html += '<button class="btn btn-primary" onclick="submitEdit(' + id + ', \'' + entryType + '\')">Save</button>';
-      html += '<button class="btn btn-secondary" onclick="document.getElementById(\'edit-backdrop\').remove()">Cancel</button>';
+      html += '<button class="btn btn-primary" onclick="submitEdit(' + id + ', \'' + entryType + '\')">' + t('Save') + '</button>';
+      html += '<button class="btn btn-secondary" onclick="document.getElementById(\'edit-backdrop\').remove()">' + t('Cancel') + '</button>';
       html += '</div></div></div></div>';
       document.body.insertAdjacentHTML('beforeend', html);
       const backdrop = document.getElementById('edit-backdrop');
@@ -1728,7 +1924,7 @@
       html += '<label>Date<input type="text" id="edit-nutr-subtotal-date" inputmode="numeric" maxlength="8" placeholder="DD/MM/YY" value="' + fmtDate(date) + '" oninput="autoFormatDate(this)"></label>';
       html += '<div class="entry-modal-actions">';
       html += '<button class="btn btn-primary" onclick="submitNutrSubtotalEdit(\'' + field + '\',' + JSON.stringify(ids) + ')">Save</button>';
-      html += '<button class="btn btn-secondary" onclick="document.getElementById(\'edit-backdrop\').remove()">Cancel</button>';
+      html += '<button class="btn btn-secondary" onclick="document.getElementById(\'edit-backdrop\').remove()">' + t('Cancel') + '</button>';
       html += '</div></div></div></div>';
       document.body.insertAdjacentHTML('beforeend', html);
       const backdrop = document.getElementById('edit-backdrop');
@@ -1754,8 +1950,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
-        if (res.ok) { showToast('Updated!'); document.getElementById('edit-backdrop').remove(); await loadData(); }
-        else showToast('Could not update.');
+        if (res.ok) { showToast(t('Updated!')); document.getElementById('edit-backdrop').remove(); await loadData(); }
+        else showToast(t('Could not update.'));
       } else {
         await Promise.all(entries.map((e, i) => {
           const proportion = oldTotal > 0 ? (e[field] || 0) / oldTotal : 1 / entries.length;
@@ -1768,7 +1964,7 @@
             body: JSON.stringify(body)
           });
         }));
-        showToast('Updated!');
+        showToast(t('Updated!'));
         const bd = document.getElementById('edit-backdrop');
         if (bd) bd.remove();
         await loadData();
@@ -1881,8 +2077,8 @@
         body: JSON.stringify(data)
       });
       document.getElementById('edit-backdrop').remove();
-      if (res.ok) { showToast('Updated!'); await loadData(); }
-      else showToast('Could not update.');
+      if (res.ok) { showToast(t('Updated!')); await loadData(); }
+      else showToast(t('Could not update.'));
     }
 
     // === Exercise logger ===
@@ -1893,7 +2089,7 @@
       document.getElementById('ex-header-run').classList.toggle('hidden', !run);
       document.getElementById('ex-table-wrap').classList.toggle('run-mode', run);
       document.querySelectorAll('#ex-rows .ex-name').forEach(inp => {
-        inp.placeholder = run ? 'e.g. Night run' : 'e.g. Bench press';
+        inp.placeholder = run ? t('e.g. Night run') : t('e.g. Bench press');
       });
     }
 
@@ -1904,7 +2100,7 @@
       row.className = 'ex-row';
       row.innerHTML =
         '<span class="ex-num">' + (currentCount + 1) + '</span>' +
-        '<input class="ex-name" type="text" placeholder="' + (run ? 'e.g. Night run' : 'e.g. Bench press') + '" oninput="this.classList.remove(\'field-error\')">' +
+        '<input class="ex-name" type="text" placeholder="' + (run ? t('e.g. Night run') : t('e.g. Bench press')) + '" oninput="this.classList.remove(\'field-error\')">' +
         '<span class="str-group">' +
           '<input class="ex-sets" type="number" min="1" max="20" placeholder="Sets" oninput="this.classList.remove(\'field-error\')">' +
           '<input class="ex-reps" type="number" min="1" max="200" placeholder="Reps" oninput="this.classList.remove(\'field-error\')">' +
@@ -1984,7 +2180,7 @@
       });
 
       if (hasError) {
-        showWoError('Some values are out of range (highlighted red). Please correct them.');
+        showWoError(t('Some values are out of range (highlighted red). Please correct them.'));
         return;
       }
 
@@ -2001,7 +2197,7 @@
 
       if (res.ok) {
         discardWorkout();
-        showToast('Workout saved!');
+        showToast(t('Workout saved!'));
         await loadData();
       } else {
         showWoError('Failed to save. Please try again.');
@@ -2041,7 +2237,7 @@
         document.getElementById('garmin-sync-bar').classList.toggle('hidden', !data.linked);
         if (data.linked) {
           document.getElementById('garmin-linked-email').textContent = data.email;
-          document.getElementById('garmin-last-sync-text').textContent = data.last_sync ? 'Last sync: ' + data.last_sync : 'Not synced yet';
+          document.getElementById('garmin-last-sync-text').textContent = data.last_sync ? t('Last sync:') + ' ' + data.last_sync : t('Not synced yet');
         }
         document.getElementById('garmin-auth-banner').classList.toggle('hidden', data.sync_status !== 'auth_failed');
       } catch(e) {}
@@ -2052,8 +2248,8 @@
       const errEl = document.getElementById('garmin-link-error');
       const email = document.getElementById('garmin-email').value.trim();
       const pw = document.getElementById('garmin-password').value;
-      if (!email || !pw) { errEl.textContent = 'Enter email and password'; errEl.classList.remove('hidden'); return; }
-      btn.disabled = true; btn.textContent = 'Connecting...';
+      if (!email || !pw) { errEl.textContent = t('Enter email and password'); errEl.classList.remove('hidden'); return; }
+      btn.disabled = true; btn.textContent = t('Connecting...');
       errEl.classList.add('hidden');
       try {
         const res = await fetch('/garmin/link', {
@@ -2063,50 +2259,51 @@
         });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
-          showToast('Garmin connected!');
+          showToast(t('Garmin connected!'));
           document.getElementById('garmin-password').value = '';
           await checkGarminStatus();
         } else if (data.status === 'mfa_required') {
-          errEl.textContent = 'Your Garmin account has 2-step verification enabled. Please disable it in the Garmin Connect app (Settings → Account → Two-Factor Authentication → Off), then try again.';
+          errEl.textContent = t('Your Garmin account has 2-step verification enabled. Please disable it in the Garmin Connect app (Settings → Account → Two-Factor Authentication → Off), then try again.');
           errEl.classList.remove('hidden');
         } else {
           errEl.textContent = data.status || 'Connection failed';
           errEl.classList.remove('hidden');
         }
       } catch(e) {
-        errEl.textContent = 'Network error'; errEl.classList.remove('hidden');
+        errEl.textContent = t('Network error'); errEl.classList.remove('hidden');
       }
-      btn.disabled = false; btn.textContent = 'Connect Garmin';
+      btn.disabled = false; btn.textContent = t('Connect Garmin');
     }
 
     async function unlinkGarmin() {
-      if (!confirm('Disconnect Garmin? Your synced workouts will remain.')) return;
+      if (!confirm(t('Disconnect Garmin? Your synced workouts will remain.'))) return;
       await fetch('/garmin/unlink', { method: 'POST' });
-      showToast('Garmin disconnected');
+      showToast(t('Garmin disconnected'));
       await checkGarminStatus();
     }
 
     async function garminSyncNow() {
       const btn = document.getElementById('btn-garmin-sync');
       const msg = document.getElementById('garmin-sync-msg');
-      btn.disabled = true; btn.textContent = '⌚ Syncing...';
+      btn.disabled = true; btn.textContent = '⌚ ' + t('Syncing...');
       msg.textContent = '';
       try {
         const res = await fetch('/garmin/sync', { method: 'POST' });
         const data = await res.json();
         if (res.ok) {
-          showToast('Garmin synced!');
+          showToast(t('Garmin synced!'));
           await loadData();
           await checkGarminStatus();
         } else {
           msg.textContent = data.status || 'Sync failed';
         }
       } catch(e) {
-        msg.textContent = 'Network error';
+        msg.textContent = t('Network error');
       }
       btn.disabled = false; btn.textContent = '⌚ Sync Garmin';
     }
 
+    applyLang();
     addExerciseRow();
     setDefaultDates();
     loadData();
