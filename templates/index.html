@@ -788,7 +788,10 @@
         weights.length ? weights[weights.length - 1].value_kg.toFixed(1) : '—';
 
       const sleeps = appData.sleeps.slice(-14);
-      const avgSleep = sleeps.length ? (sleeps.reduce((a, s) => a + s.hours, 0) / sleeps.length).toFixed(1) : '—';
+      const sleepByDay = {};
+      sleeps.forEach(s => { sleepByDay[s.date] = (sleepByDay[s.date] || 0) + s.hours; });
+      const sleepDays = Object.values(sleepByDay);
+      const avgSleep = sleepDays.length ? (sleepDays.reduce((a, h) => a + h, 0) / sleepDays.length).toFixed(1) : '—';
       document.getElementById('s-sleep').textContent = avgSleep;
 
       const nutritions = appData.nutritions.slice(-14);
