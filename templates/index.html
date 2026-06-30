@@ -1742,6 +1742,9 @@
       return arr.find(e => e.id === id);
     }
 
+    function lockScroll() { document.body.style.overflow = 'hidden'; }
+    function unlockScroll() { document.body.style.overflow = ''; }
+
     function openViewModal(id, entryType, clickX, clickY, nutrLabel) {
       if (entryType === 'nutrition' && nutrLabel && Array.isArray(id)) {
         return openNutritionSubtotalView(id, nutrLabel, clickX, clickY);
@@ -1797,7 +1800,12 @@
         }
       }
       html += '</div></div></div>';
+      lockScroll();
       document.body.insertAdjacentHTML('beforeend', html);
+      const backdrop = document.body.lastElementChild;
+      new MutationObserver((_, obs) => {
+        if (!document.body.contains(backdrop)) { unlockScroll(); obs.disconnect(); }
+      }).observe(document.body, { childList: true });
     }
 
     async function removeExerciseFromView(workoutId, exIndex, btn) {
@@ -1902,7 +1910,12 @@
         html += '<p style="color:var(--dim);font-size:0.8rem;margin-top:0.5rem;">From ' + entries.length + ' entries</p>';
       }
       html += '</div></div></div>';
+      lockScroll();
       document.body.insertAdjacentHTML('beforeend', html);
+      const backdrop = document.body.lastElementChild;
+      new MutationObserver((_, obs) => {
+        if (!document.body.contains(backdrop)) { unlockScroll(); obs.disconnect(); }
+      }).observe(document.body, { childList: true });
     }
 
     function openNutritionSubtotalEdit(ids, label, clickX, clickY) {
