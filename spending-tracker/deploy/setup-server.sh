@@ -42,10 +42,18 @@ if [ -f "$ENV_FILE" ]; then
     echo "  $ENV_FILE already exists — keeping existing keys."
     echo "  (Regenerating VAPID keys would invalidate your phone's subscription.)"
 else
-    SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    SECRET=$("$VENV_DIR/bin/python" -c "import secrets; print(secrets.token_hex(32))")
+    # Use the venv python: cryptography is guaranteed there (it ships with
+    # pywebpush), whereas the system python may not have a working copy.
+    VAPID_KEYS=$("$VENV_DIR/bin/python" generate_vapid_keys.py)
+    if ! echo "$VAPID_KEYS" | grep -q '^VAPID_PUBLIC_KEY='; then
+        echo "  ERROR: could not generate VAPID keys — push reminders would not work."
+        echo "  Output was: $VAPID_KEYS"
+        exit 1
+    fi
     {
         echo "SECRET_KEY=${SECRET}"
-        python3 generate_vapid_keys.py
+        echo "$VAPID_KEYS"
         echo "VAPID_SUBJECT=mailto:omrieldor@gmail.com"
         echo "# Get a free key at https://twelvedata.com and paste it here for live prices:"
         echo "MARKET_DATA_API_KEY="

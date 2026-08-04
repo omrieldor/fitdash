@@ -4,7 +4,7 @@ import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
+from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import func
@@ -143,6 +143,20 @@ def index():
     from spending_import import seed_default_rules
     seed_default_rules(current_user)
     return render_template('index.html')
+
+
+@app.route('/sw.js')
+def service_worker():
+    """Serve the worker from the root so its scope covers the whole app.
+
+    At /static/sw.js the scope would be /static/, leaving the dashboard at /
+    uncontrolled — navigator.serviceWorker.ready would then never resolve and
+    push registration would hang silently.
+    """
+    resp = send_from_directory(app.static_folder, 'sw.js')
+    resp.headers['Service-Worker-Allowed'] = '/'
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
 
 
 # --- Helpers ---
