@@ -135,7 +135,9 @@ EOF
 
 sudo ln -sf /etc/nginx/sites-available/${SERVICE_NAME} /etc/nginx/sites-enabled/
 sudo nginx -t
-sudo systemctl restart nginx
+# reload, not restart — picks up the new site without dropping connections to the
+# fitness app already being served by this nginx.
+sudo systemctl reload nginx
 
 echo ""
 echo "=========================================="

@@ -16,7 +16,9 @@ API_BASE = 'https://api.twelvedata.com'
 BENCHMARK_SYMBOL = 'SPY'          # S&P 500 tracker, used for the "vs market" chart
 BENCHMARK_LABEL = 'S&P 500'
 BASE_CURRENCY = 'ILS'
-QUOTE_TTL_SECONDS = 900           # re-use a same-day quote for 15 minutes
+QUOTE_TTL_SECONDS = 3600          # re-use a same-day quote for an hour; a portfolio
+                                  # logged monthly doesn't need finer resolution, and
+                                  # this keeps call volume well inside the free tier
 REQUEST_TIMEOUT = 10
 
 
