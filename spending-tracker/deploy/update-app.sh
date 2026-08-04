@@ -22,4 +22,5 @@ echo "Restarting app..."
 sudo systemctl restart spendtrack
 
 echo "Done! App updated and running."
-echo "Check status: sudo systemctl status spendtrack"
+echo "Check status:   sudo systemctl status spendtrack"
+echo "Check reminder: systemctl list-timers spendtrack-reminder.timer"

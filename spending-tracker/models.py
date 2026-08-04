@@ -16,9 +16,13 @@ class User(UserMixin, db.Model):
     categories = db.relationship('Category', backref='user', lazy=True, cascade='all, delete-orphan')
     rules = db.relationship('CategorizationRule', backref='user', lazy=True, cascade='all, delete-orphan')
     imports = db.relationship('Import', backref='user', lazy=True, cascade='all, delete-orphan')
+    networth_items = db.relationship('NetWorthItem', backref='user', lazy=True, cascade='all, delete-orphan')
+    portfolio_snapshots = db.relationship('PortfolioSnapshot', backref='user', lazy=True, cascade='all, delete-orphan')
+    push_subscriptions = db.relationship('PushSubscription', backref='user', lazy=True, cascade='all, delete-orphan')
 
 
 class Account(db.Model):
+    """A bank/card account that statements are imported for."""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
@@ -32,12 +36,18 @@ class Account(db.Model):
 
 
 class Category(db.Model):
+    """Two-level category tree: top-level groups (parent_id NULL) and their children."""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('category.id'))
     name = db.Column(db.String(60), nullable=False)
     icon = db.Column(db.String(10))
     color = db.Column(db.String(20))
+    kind = db.Column(db.String(10), default='expense')  # expense | income
     is_system = db.Column(db.Boolean, default=False)
+    sort_order = db.Column(db.Integer, default=0)
+
+    children = db.relationship('Category', backref=db.backref('parent', remote_side=[id]), lazy=True)
 
     __table_args__ = (db.UniqueConstraint('user_id', 'name', name='uq_category_user_name'),)
 
@@ -50,7 +60,8 @@ class Transaction(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'))
 
     date = db.Column(db.Date, nullable=False)
-    amount = db.Column(db.Float, nullable=False)  # positive = spend, negative = refund/credit
+    amount = db.Column(db.Float, nullable=False)  # always a magnitude; direction lives in txn_type
+    txn_type = db.Column(db.String(10), default='expense')  # expense | income
     merchant_raw = db.Column(db.String(300), nullable=False)
     merchant_normalized = db.Column(db.String(150), nullable=False, index=True)
     category_source = db.Column(db.String(20), default='default')  # rule, manual, default
@@ -95,34 +106,182 @@ class Import(db.Model):
     transactions = db.relationship('Transaction', backref='import_batch', lazy=True)
 
 
-DEFAULT_CATEGORIES = [
-    ('Groceries', '🛒', '#5a9a75'),
-    ('Dining', '🍔', '#c9a84c'),
-    ('Transport', '🚗', '#1478ff'),
-    ('Shopping', '🛍️', '#8a5565'),
-    ('Bills & Utilities', '💡', '#a05555'),
-    ('Entertainment', '🎬', '#7a5ac9'),
-    ('Health', '💊', '#4ca6a8'),
-    ('Travel', '✈️', '#c97a4c'),
-    ('Subscriptions', '🔁', '#6a7fc9'),
-    ('Uncategorized', '❔', '#5a6070'),
+# --- Net worth ---
+
+class NetWorthItem(db.Model):
+    """A named balance you update manually: bank accounts, emergency fund, loans, etc."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    kind = db.Column(db.String(20), default='bank')  # bank | emergency_fund | other_asset | liability
+    icon = db.Column(db.String(10))
+    target_amount = db.Column(db.Float)  # used by emergency_fund
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    entries = db.relationship('NetWorthEntry', backref='item', lazy=True,
+                              cascade='all, delete-orphan',
+                              order_by='NetWorthEntry.as_of_date.desc()')
+
+
+class NetWorthEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    item_id = db.Column(db.Integer, db.ForeignKey('net_worth_item.id'), nullable=False)
+    as_of_date = db.Column(db.Date, nullable=False)
+    amount = db.Column(db.Float, nullable=False)  # always positive; liabilities subtract by kind
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# --- Investments ---
+
+class PortfolioSnapshot(db.Model):
+    """One manual portfolio update, normally logged once a month."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    as_of_date = db.Column(db.Date, nullable=False)
+    contribution = db.Column(db.Float, default=0.0)  # money added since previous snapshot
+    cash_value = db.Column(db.Float, default=0.0)    # uninvested cash sitting in the brokerage
+    total_value = db.Column(db.Float, default=0.0)   # ILS value at the time it was logged
+    note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    holdings = db.relationship('Holding', backref='snapshot', lazy=True, cascade='all, delete-orphan')
+
+
+class Holding(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    snapshot_id = db.Column(db.Integer, db.ForeignKey('portfolio_snapshot.id'), nullable=False)
+    ticker = db.Column(db.String(20), nullable=False)
+    label = db.Column(db.String(100))
+    quantity = db.Column(db.Float, nullable=False)
+    manual_value = db.Column(db.Float)  # fallback total value when no live price is available
+    currency = db.Column(db.String(10), default='USD')
+
+
+class PriceCache(db.Model):
+    """Cached quotes and historical closes so we don't re-hit the market data API."""
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(30), nullable=False, index=True)
+    as_of_date = db.Column(db.Date, nullable=False)
+    close = db.Column(db.Float, nullable=False)
+    currency = db.Column(db.String(10), default='USD')
+    fetched_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('symbol', 'as_of_date', name='uq_price_symbol_date'),)
+
+
+# --- Push notifications ---
+
+class PushSubscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    endpoint = db.Column(db.Text, nullable=False)
+    p256dh = db.Column(db.String(200), nullable=False)
+    auth = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ReminderLog(db.Model):
+    """One row per reminder actually delivered, so an hourly scheduler can't double-send."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    kind = db.Column(db.String(40), default='monthly_log')
+    period = db.Column(db.String(10), nullable=False)  # YYYY-MM
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'kind', 'period', name='uq_reminder_user_kind_period'),)
+
+
+# --- Seed data ---
+
+# (group name, icon, color, kind, [(child name, child icon), ...])
+CATEGORY_TREE = [
+    ('Income', '💰', '#5a9a75', 'income', [
+        ('Salary', '🧾'), ('Bonus', '🎁'), ('Freelance', '💻'), ('Dividends', '📈'),
+        ('Interest', '🏦'), ('Refunds', '↩️'), ('Other Income', '➕'),
+    ]),
+    ('Food', '🍽️', '#c9a84c', 'expense', [
+        ('Groceries', '🛒'), ('Restaurants', '🍴'), ('Cafés', '☕'), ('Food Delivery', '🛵'),
+    ]),
+    ('Car', '🚗', '#1478ff', 'expense', [
+        ('Fuel', '⛽'), ('Car Insurance', '🛡️'), ('Car Maintenance', '🔧'),
+        ('Parking', '🅿️'), ('Tolls', '🛣️'), ('Car Payment', '🚙'),
+    ]),
+    ('Home', '🏠', '#a05555', 'expense', [
+        ('Rent / Mortgage', '🔑'), ('Utilities', '💡'), ('Internet & TV', '📶'),
+        ('Home Maintenance', '🧰'), ('Furniture & Appliances', '🛋️'), ('Home Insurance', '📋'),
+    ]),
+    ('Cash', '💵', '#7a8a5a', 'expense', [
+        ('Cash Withdrawal', '🏧'),
+    ]),
+    ('Transport', '🚌', '#6a7fc9', 'expense', [
+        ('Public Transport', '🚇'), ('Taxi & Rideshare', '🚕'),
+    ]),
+    ('Shopping', '🛍️', '#8a5565', 'expense', [
+        ('Clothing', '👕'), ('Electronics', '📱'), ('General Shopping', '🏬'),
+    ]),
+    ('Health', '💊', '#4ca6a8', 'expense', [
+        ('Pharmacy', '💊'), ('Doctor & Dental', '🩺'), ('Gym & Fitness', '🏋️'), ('Health Insurance', '🏥'),
+    ]),
+    ('Entertainment', '🎬', '#7a5ac9', 'expense', [
+        ('Streaming & Subscriptions', '🔁'), ('Events & Nightlife', '🎟️'), ('Hobbies', '🎨'),
+    ]),
+    ('Travel', '✈️', '#c97a4c', 'expense', [
+        ('Flights', '🛫'), ('Hotels', '🏨'), ('Vacation', '🏝️'),
+    ]),
+    ('Financial', '🏦', '#5f6b8a', 'expense', [
+        ('Bank Fees', '💳'), ('Taxes', '📑'), ('Loan Payment', '📉'),
+    ]),
+    ('Other', '📦', '#5a6070', 'expense', [
+        ('Uncategorized', '❔'), ('Misc', '📦'),
+    ]),
 ]
+
+# Categories that must always exist because code falls back to them.
+SYSTEM_CATEGORY_NAMES = {'Uncategorized', 'Other Income', 'Cash Withdrawal', 'Salary'}
 
 
 def ensure_default_categories(user):
-    existing = {c.name for c in Category.query.filter_by(user_id=user.id).all()}
+    existing = {c.name: c for c in Category.query.filter_by(user_id=user.id).all()}
     created_any = False
-    for name, icon, color in DEFAULT_CATEGORIES:
-        if name not in existing:
-            db.session.add(Category(
-                user_id=user.id, name=name, icon=icon, color=color,
-                is_system=(name == 'Uncategorized'),
-            ))
+    order = 0
+
+    for group_name, group_icon, color, kind, children in CATEGORY_TREE:
+        group = existing.get(group_name)
+        if group is None:
+            group = Category(user_id=user.id, name=group_name, icon=group_icon, color=color,
+                             kind=kind, is_system=True, sort_order=order)
+            db.session.add(group)
+            db.session.flush()
+            existing[group_name] = group
             created_any = True
+        order += 1
+
+        for child_name, child_icon in children:
+            if child_name not in existing:
+                db.session.add(Category(
+                    user_id=user.id, parent_id=group.id, name=child_name, icon=child_icon,
+                    color=color, kind=kind, sort_order=order,
+                    is_system=(child_name in SYSTEM_CATEGORY_NAMES),
+                ))
+                created_any = True
+            order += 1
+
     if created_any:
         db.session.commit()
 
 
+def get_category(user, name):
+    return Category.query.filter_by(user_id=user.id, name=name).first()
+
+
 def get_uncategorized_category(user):
     ensure_default_categories(user)
-    return Category.query.filter_by(user_id=user.id, name='Uncategorized').first()
+    return get_category(user, 'Uncategorized')
+
+
+def get_default_income_category(user):
+    ensure_default_categories(user)
+    return get_category(user, 'Other Income')
