@@ -8,7 +8,7 @@
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#2a2d35">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
-  <link rel="stylesheet" href="/static/style.css?v=2">
+  <link rel="stylesheet" href="/static/style.css?v=3">
   <script defer src="/static/chart.min.js"></script>
 </head>
 <body>
@@ -857,29 +857,54 @@
     }
 
     document.getElementById('btn-enable-push').addEventListener('click', async () => {
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        return showToast('Push not supported on this browser');
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        return showToast('Needs iOS 16.4+, opened from the Home Screen icon');
       }
-      const { public_key: publicKey, configured } = await (await fetch('/push/public-key')).json();
-      if (!configured) return showToast('Push keys not set up on the server yet');
 
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') return showToast('Notifications blocked');
+      // Ask for permission FIRST, before any await. Safari discards the user
+      // activation from the tap once an async call intervenes, and then silently
+      // refuses to show the prompt.
+      let permission;
+      try {
+        permission = await Notification.requestPermission();
+      } catch (err) {
+        return showToast('Permission request failed: ' + (err.message || err));
+      }
+      if (permission !== 'granted') {
+        return showToast('Notifications blocked — enable them in iPhone Settings');
+      }
 
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-      const res = await fetch('/push/subscribe', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub.toJSON()),
-      });
-      showToast(res.ok ? 'Reminders on — 8th of each month, 20:00' : 'Could not enable reminders');
+      // Everything past here is wrapped so a failure surfaces instead of vanishing.
+      try {
+        const keyRes = await fetch('/push/public-key');
+        if (!keyRes.ok) return showToast('Server error fetching key: ' + keyRes.status);
+        const { public_key: publicKey, configured } = await keyRes.json();
+        if (!configured || !publicKey) return showToast('Server has no push keys configured');
+
+        // Bounded wait: if the worker is somehow out of scope, `ready` never
+        // settles, and an unbounded await would look like the button is dead.
+        const reg = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('service worker not ready')), 10000)),
+        ]);
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+        const saveRes = await fetch('/push/subscribe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sub.toJSON()),
+        });
+        showToast(saveRes.ok ? 'Reminders on — 8th of each month, 20:00'
+                             : 'Could not save subscription: ' + saveRes.status);
+      } catch (err) {
+        showToast('Push error: ' + (err && err.message ? err.message : err));
+      }
     });
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
 
     loadAll();
