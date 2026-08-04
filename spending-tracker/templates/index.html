@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>SpendTrack</title>
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2a2d35">
+  <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
+  <link rel="stylesheet" href="/static/style.css?v=2">
+  <script defer src="/static/chart.min.js"></script>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="app-title">💳 SpendTrack</div>
+      <div class="header-actions">
+        <button type="button" class="btn-icon" id="btn-enable-push" title="Enable reminders">🔔</button>
+        <form method="POST" action="/logout"><button type="submit" class="btn-icon">⏻</button></form>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- Net worth hero -->
+    <section class="hero-card">
+      <div class="hero-label">Net Worth</div>
+      <div class="hero-value" id="nw-total">—</div>
+      <div class="hero-breakdown">
+        <div><span class="hero-sub-label">Assets</span><span id="nw-assets">—</span></div>
+        <div><span class="hero-sub-label">Investments</span><span id="nw-invest">—</span></div>
+        <div><span class="hero-sub-label">Debts</span><span id="nw-liab">—</span></div>
+      </div>
+      <canvas id="chart-networth" class="hero-chart"></canvas>
+    </section>
+
+    <!-- Month summary -->
+    <section class="summary-bar">
+      <div class="summary-card">
+        <div class="summary-label">Income</div>
+        <div class="summary-value income" id="sum-income">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Spent</div>
+        <div class="summary-value expense" id="sum-expense">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Saved</div>
+        <div class="summary-value" id="sum-net">—</div>
+      </div>
+    </section>
+    <section class="summary-bar">
+      <div class="summary-card">
+        <div class="summary-label">vs Last Month</div>
+        <div class="summary-value small" id="sum-vs-last">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Cash Pulled</div>
+        <div class="summary-value small" id="sum-cash">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">To Review</div>
+        <div class="summary-value small" id="sum-uncat">—</div>
+      </div>
+    </section>
+
+    <!-- Income vs spending -->
+    <section class="chart-card">
+      <h3>Income vs Spending</h3>
+      <canvas id="chart-flow"></canvas>
+      <div id="income-sources" class="legend-list"></div>
+    </section>
+
+    <!-- Where money goes -->
+    <section class="chart-card">
+      <h3>Where It Goes</h3>
+      <canvas id="chart-category"></canvas>
+      <div id="category-legend" class="legend-list"></div>
+    </section>
+
+    <!-- Top merchants -->
+    <section class="chart-card">
+      <h3>Top Merchants</h3>
+      <div id="top-merchants-list" class="merchant-list"></div>
+    </section>
+
+    <!-- Portfolio -->
+    <section class="chart-card">
+      <h3>Investment Portfolio</h3>
+      <div class="portfolio-head">
+        <div>
+          <div class="portfolio-value" id="pf-value">—</div>
+          <div class="portfolio-meta" id="pf-meta">No portfolio logged yet</div>
+        </div>
+        <button type="button" class="btn-outline" id="btn-add-snapshot">Log Month</button>
+      </div>
+      <canvas id="chart-portfolio"></canvas>
+      <div id="pf-holdings" class="holdings-list"></div>
+    </section>
+
+    <!-- Performance vs market -->
+    <section class="chart-card">
+      <h3>You vs <span id="benchmark-label">S&amp;P 500</span></h3>
+      <canvas id="chart-performance"></canvas>
+      <div id="pf-perf-hint" class="empty-hint"></div>
+    </section>
+
+    <!-- Emergency fund -->
+    <section class="log-section">
+      <h3>Emergency Fund</h3>
+      <div id="emergency-fund"></div>
+    </section>
+
+    <!-- Balances / net worth items -->
+    <section class="log-section">
+      <h3 class="collapsible-header" id="nw-toggle">Accounts &amp; Debts <span id="nw-toggle-icon">▾</span></h3>
+      <div id="nw-panel" class="hidden">
+        <div id="nw-items" class="nw-list"></div>
+        <div class="nw-add">
+          <input type="text" id="nw-name" placeholder="Name (e.g. Bank Hapoalim)">
+          <select id="nw-kind">
+            <option value="bank">Bank / Cash</option>
+            <option value="emergency_fund">Emergency Fund</option>
+            <option value="other_asset">Other Asset</option>
+            <option value="liability">Debt / Loan</option>
+          </select>
+          <input type="number" id="nw-amount" placeholder="Current balance ₪" step="0.01">
+          <input type="number" id="nw-target" placeholder="Target ₪ (emergency fund only)" step="0.01">
+          <button type="button" class="btn-primary" id="btn-add-nw">Add</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Upload -->
+    <section class="log-section">
+      <h3>Upload Statement</h3>
+      <div class="upload-row">
+        <select id="upload-account"></select>
+        <button type="button" class="btn-outline" id="btn-new-account">+ Account</button>
+      </div>
+      <div id="new-account-form" class="new-account-form hidden">
+        <input type="text" id="new-account-name" placeholder="Account name (e.g. Hapoalim Visa)">
+        <input type="text" id="new-account-institution" placeholder="Institution (optional)">
+        <select id="new-account-type">
+          <option value="credit_card">Credit Card</option>
+          <option value="debit">Debit</option>
+          <option value="checking">Checking</option>
+          <option value="savings">Savings</option>
+          <option value="other">Other</option>
+        </select>
+        <button type="button" class="btn-primary" id="btn-save-account">Save Account</button>
+      </div>
+      <div class="upload-row">
+        <input type="file" id="upload-file" accept=".csv">
+        <button type="button" class="btn-primary" id="btn-upload">Upload</button>
+      </div>
+    </section>
+
+    <!-- Review queue -->
+    <section class="log-section">
+      <h3>Needs Review</h3>
+      <div id="review-list" class="review-list"></div>
+      <div id="review-empty" class="empty-hint hidden">All caught up 🎉</div>
+    </section>
+
+    <!-- All transactions -->
+    <section class="log-section">
+      <h3 class="collapsible-header" id="txn-toggle">All Transactions <span id="txn-toggle-icon">▾</span></h3>
+      <div id="txn-list" class="txn-list hidden"></div>
+    </section>
+
+  </main>
+
+  <!-- Column mapping modal -->
+  <div class="modal-backdrop hidden" id="mapping-modal-backdrop">
+    <div class="modal">
+      <h3>Match Your Columns</h3>
+      <p class="modal-hint">First upload for this account — confirm which columns are which.</p>
+      <label>Date column<select id="map-date"></select></label>
+      <label>Amount column<select id="map-amount"></select></label>
+      <label>Merchant / Description column<select id="map-merchant"></select></label>
+      <label>Sign convention
+        <select id="map-sign">
+          <option value="positive_is_debit">Spending shows as positive</option>
+          <option value="negative_is_debit">Spending shows as negative</option>
+        </select>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="mapping-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="mapping-confirm">Confirm &amp; Import</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Portfolio snapshot modal -->
+  <div class="modal-backdrop hidden" id="snapshot-modal-backdrop">
+    <div class="modal">
+      <h3>Log Portfolio</h3>
+      <p class="modal-hint">Enter your holdings. Prices update automatically between logs.</p>
+      <label>As of<input type="date" id="snap-date"></label>
+      <label>Added since last time (₪)<input type="number" id="snap-contribution" placeholder="0" step="0.01"></label>
+      <label>Uninvested cash (₪)<input type="number" id="snap-cash" placeholder="0" step="0.01"></label>
+      <div id="snap-holdings"></div>
+      <button type="button" class="btn-outline" id="btn-add-holding">+ Add Holding</button>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="snapshot-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="snapshot-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
+    const _origFetch = window.fetch;
+    window.fetch = function(url, opts) {
+      opts = opts || {};
+      if (opts.method && opts.method !== 'GET') {
+        opts.headers = Object.assign({ 'X-CSRFToken': CSRF_TOKEN }, opts.headers || {});
+      }
+      return _origFetch.call(this, url, opts);
+    };
+
+    const money = new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS', maximumFractionDigits: 0 });
+    const moneyPrecise = new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    function fmt(n) { return money.format(n || 0); }
+    function fmt2(n) { return moneyPrecise.format(n || 0); }
+    function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2800);
+    }
+
+    const AXIS = '#a8aeba';
+    const GRID = 'rgba(255,255,255,0.05)';
+    let accounts = [], categories = [], transactions = [], charts = {};
+    let pendingUpload = null;
+
+    async function loadAll() {
+      await Promise.all([loadCategories(), loadAccounts()]);
+      await Promise.all([loadSummary(), loadTransactions(), loadNetWorth(), loadPortfolio()]);
+    }
+
+    async function loadCategories() {
+      categories = await (await fetch('/categories')).json();
+    }
+
+    async function loadAccounts() {
+      accounts = await (await fetch('/accounts')).json();
+      const sel = document.getElementById('upload-account');
+      sel.innerHTML = accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')
+        || '<option value="">No accounts yet — add one</option>';
+    }
+
+    // ── Spending summary ──────────────────────────────────────
+
+    async function loadSummary() {
+      const s = await (await fetch('/api/summary')).json();
+      document.getElementById('sum-income').textContent = fmt(s.income_this_month);
+      document.getElementById('sum-expense').textContent = fmt(s.expense_this_month);
+
+      const net = document.getElementById('sum-net');
+      net.textContent = fmt(s.net_this_month);
+      net.style.color = s.net_this_month >= 0 ? 'var(--green)' : 'var(--red)';
+
+      const vsLast = document.getElementById('sum-vs-last');
+      if (s.pct_change === null) {
+        vsLast.textContent = '—';
+      } else {
+        const arrow = s.pct_change > 0 ? '▲' : (s.pct_change < 0 ? '▼' : '—');
+        vsLast.textContent = `${arrow} ${Math.abs(s.pct_change)}%`;
+        vsLast.style.color = s.pct_change > 0 ? 'var(--red)' : 'var(--green)';
+      }
+      document.getElementById('sum-cash').textContent = fmt(s.cash_withdrawn);
+      document.getElementById('sum-uncat').textContent = s.uncategorized_count;
+
+      renderFlowChart(s.monthly_trend);
+      renderIncomeSources(s.by_income_source);
+      renderCategoryChart(s.by_group);
+      renderTopMerchants(s.top_merchants);
+    }
+
+    function renderFlowChart(trend) {
+      const labels = trend.map(t => t.month);
+      const income = trend.map(t => t.income);
+      const expense = trend.map(t => t.expense);
+      if (charts.flow) {
+        charts.flow.data.labels = labels;
+        charts.flow.data.datasets[0].data = income;
+        charts.flow.data.datasets[1].data = expense;
+        charts.flow.update();
+        return;
+      }
+      charts.flow = new Chart(document.getElementById('chart-flow'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Income', data: income, backgroundColor: '#5a9a75', borderRadius: 5 },
+            { label: 'Spending', data: expense, backgroundColor: '#a05555', borderRadius: 5 },
+          ],
+        },
+        options: {
+          plugins: { legend: { labels: { color: AXIS, boxWidth: 12 } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: AXIS } },
+            y: { grid: { color: GRID }, ticks: { color: AXIS } },
+          },
+        },
+      });
+    }
+
+    function renderIncomeSources(sources) {
+      const el = document.getElementById('income-sources');
+      el.innerHTML = sources.length
+        ? sources.map(s => `
+            <div class="legend-row">
+              <span class="legend-dot" style="background:#5a9a75"></span>
+              <span class="legend-name">${s.icon || ''} ${esc(s.name)}</span>
+              <span class="legend-value income">${fmt(s.total)}</span>
+            </div>`).join('')
+        : '<div class="empty-hint">No income recorded this month</div>';
+    }
+
+    function renderCategoryChart(groups) {
+      const labels = groups.map(g => `${g.icon || ''} ${g.name}`);
+      const data = groups.map(g => g.total);
+      const colors = groups.map(g => g.color || '#5a6070');
+      if (charts.category) {
+        charts.category.data.labels = labels;
+        charts.category.data.datasets[0].data = data;
+        charts.category.data.datasets[0].backgroundColor = colors;
+        charts.category.update();
+      } else {
+        charts.category = new Chart(document.getElementById('chart-category'), {
+          type: 'doughnut',
+          data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
+          options: { plugins: { legend: { display: false } }, cutout: '62%' },
+        });
+      }
+
+      const legend = document.getElementById('category-legend');
+      legend.innerHTML = groups.length ? groups.map((g, i) => `
+        <div class="legend-group" data-idx="${i}">
+          <div class="legend-row group-row">
+            <span class="legend-dot" style="background:${g.color || '#5a6070'}"></span>
+            <span class="legend-name">${g.icon || ''} ${esc(g.name)}</span>
+            <span class="legend-value">${fmt(g.total)}</span>
+            <span class="legend-caret">${g.children.length > 1 ? '▾' : ''}</span>
+          </div>
+          ${g.children.length > 1 ? `<div class="legend-children hidden">
+            ${g.children.map(c => `
+              <div class="legend-row child-row">
+                <span class="legend-name">${c.icon || ''} ${esc(c.name)}</span>
+                <span class="legend-value">${fmt(c.total)}</span>
+              </div>`).join('')}
+          </div>` : ''}
+        </div>`).join('') : '<div class="empty-hint">No spending yet this month</div>';
+
+      legend.querySelectorAll('.group-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const kids = row.parentElement.querySelector('.legend-children');
+          if (!kids) return;
+          kids.classList.toggle('hidden');
+          row.querySelector('.legend-caret').textContent = kids.classList.contains('hidden') ? '▾' : '▴';
+        });
+      });
+    }
+
+    function renderTopMerchants(merchants) {
+      const list = document.getElementById('top-merchants-list');
+      if (!merchants.length) {
+        list.innerHTML = '<div class="empty-hint">No spending yet this month</div>';
+        return;
+      }
+      const max = Math.max(...merchants.map(m => m.total));
+      list.innerHTML = merchants.map(m => `
+        <div class="merchant-row">
+          <div class="merchant-info">
+            <span class="merchant-name">${esc(m.merchant)}</span>
+            <span class="merchant-count">${m.count}×</span>
+          </div>
+          <div class="merchant-bar-track"><div class="merchant-bar" style="width:${(m.total / max * 100).toFixed(0)}%"></div></div>
+          <span class="merchant-total">${fmt(m.total)}</span>
+        </div>`).join('');
+    }
+
+    // ── Net worth ─────────────────────────────────────────────
+
+    async function loadNetWorth() {
+      const nw = await (await fetch('/api/networth')).json();
+      document.getElementById('nw-total').textContent = fmt(nw.net_worth);
+      document.getElementById('nw-assets').textContent = fmt(nw.assets_total);
+      document.getElementById('nw-invest').textContent = fmt(nw.portfolio_value);
+      document.getElementById('nw-liab').textContent = fmt(nw.liabilities_total);
+
+      renderNetWorthChart(nw.history);
+      renderEmergencyFund(nw.emergency_fund);
+      renderNetWorthItems(nw.items);
+    }
+
+    function renderNetWorthChart(history) {
+      const labels = history.map(h => h.month);
+      const data = history.map(h => h.value);
+      if (charts.networth) {
+        charts.networth.data.labels = labels;
+        charts.networth.data.datasets[0].data = data;
+        charts.networth.update();
+        return;
+      }
+      charts.networth = new Chart(document.getElementById('chart-networth'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            data, borderColor: '#1478ff', backgroundColor: 'rgba(20,120,255,0.15)',
+            fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2,
+          }],
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: { x: { display: false }, y: { display: false } },
+        },
+      });
+    }
+
+    function renderEmergencyFund(ef) {
+      const el = document.getElementById('emergency-fund');
+      if (!ef) {
+        el.innerHTML = `<div class="empty-hint">No emergency fund yet — add one under Accounts &amp; Debts.</div>`;
+        return;
+      }
+      const pct = ef.progress === null ? null : ef.progress;
+      el.innerHTML = `
+        <div class="ef-top">
+          <span class="ef-amount">${fmt(ef.amount)}</span>
+          ${ef.target_amount ? `<span class="ef-target">of ${fmt(ef.target_amount)}</span>` : ''}
+        </div>
+        ${pct !== null ? `
+          <div class="ef-track"><div class="ef-bar" style="width:${pct}%"></div></div>
+          <div class="ef-pct">${pct}% funded</div>` : ''}
+        <div class="ef-edit">
+          <input type="number" id="ef-new-amount" placeholder="Update balance ₪" step="0.01">
+          <button type="button" class="btn-outline" id="btn-update-ef" data-id="${ef.id}">Update</button>
+        </div>`;
+      const btn = document.getElementById('btn-update-ef');
+      if (btn) btn.addEventListener('click', async () => {
+        const amount = document.getElementById('ef-new-amount').value;
+        if (amount === '') return;
+        await fetch(`/networth/items/${btn.dataset.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: parseFloat(amount) }),
+        });
+        showToast('Emergency fund updated');
+        await loadNetWorth();
+      });
+    }
+
+    function renderNetWorthItems(items) {
+      const el = document.getElementById('nw-items');
+      el.innerHTML = items.length ? items.map(i => `
+        <div class="nw-row">
+          <span class="nw-name">${i.icon || ''} ${esc(i.name)}</span>
+          <span class="nw-kind">${i.kind === 'liability' ? 'debt' : i.kind.replace('_', ' ')}</span>
+          <input type="number" class="nw-amount-input" data-id="${i.id}" value="${i.amount}" step="0.01">
+          <button type="button" class="nw-delete" data-id="${i.id}">🗑</button>
+        </div>`).join('') : '<div class="empty-hint">Nothing tracked yet</div>';
+
+      el.querySelectorAll('.nw-amount-input').forEach(inp => {
+        inp.addEventListener('change', async () => {
+          await fetch(`/networth/items/${inp.dataset.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: parseFloat(inp.value || '0') }),
+          });
+          showToast('Balance updated');
+          await loadNetWorth();
+        });
+      });
+      el.querySelectorAll('.nw-delete').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await fetch(`/networth/items/${btn.dataset.id}`, { method: 'DELETE' });
+          await loadNetWorth();
+        });
+      });
+    }
+
+    document.getElementById('btn-add-nw').addEventListener('click', async () => {
+      const name = document.getElementById('nw-name').value.trim();
+      if (!name) return showToast('Name required');
+      const target = document.getElementById('nw-target').value;
+      await fetch('/networth/items', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          kind: document.getElementById('nw-kind').value,
+          amount: document.getElementById('nw-amount').value,
+          target_amount: target === '' ? null : parseFloat(target),
+        }),
+      });
+      ['nw-name', 'nw-amount', 'nw-target'].forEach(id => document.getElementById(id).value = '');
+      showToast('Added');
+      await loadNetWorth();
+    });
+
+    // ── Portfolio ─────────────────────────────────────────────
+
+    async function loadPortfolio() {
+      const pf = await (await fetch('/api/portfolio')).json();
+      document.getElementById('benchmark-label').textContent = pf.benchmark_label;
+      document.getElementById('pf-value').textContent = pf.snapshot_count ? fmt(pf.current_value) : '—';
+
+      const meta = document.getElementById('pf-meta');
+      if (!pf.snapshot_count) {
+        meta.textContent = 'No portfolio logged yet';
+      } else if (pf.live_prices) {
+        meta.textContent = `Live prices · ${pf.holdings.length} holdings`;
+      } else if (!pf.market_data_configured) {
+        meta.textContent = 'Add MARKET_DATA_API_KEY for live prices';
+      } else {
+        meta.textContent = 'Using last saved values';
+      }
+
+      renderPortfolioChart(pf.history);
+      renderHoldings(pf.holdings);
+      renderPerformance(pf.performance, pf.benchmark_label, pf.market_data_configured, pf.snapshot_count);
+    }
+
+    function renderPortfolioChart(history) {
+      const labels = history.map(h => h.date);
+      const data = history.map(h => h.value);
+      if (charts.portfolio) {
+        charts.portfolio.data.labels = labels;
+        charts.portfolio.data.datasets[0].data = data;
+        charts.portfolio.update();
+        return;
+      }
+      charts.portfolio = new Chart(document.getElementById('chart-portfolio'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Portfolio', data, borderColor: '#5a9a75',
+            backgroundColor: 'rgba(90,154,117,0.15)', fill: true,
+            tension: 0.3, pointRadius: 3, borderWidth: 2,
+          }],
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: AXIS } },
+            y: { grid: { color: GRID }, ticks: { color: AXIS } },
+          },
+        },
+      });
+    }
+
+    function renderHoldings(holdings) {
+      const el = document.getElementById('pf-holdings');
+      el.innerHTML = holdings.length ? holdings.map(h => `
+        <div class="holding-row">
+          <div class="holding-info">
+            <span class="holding-ticker">${esc(h.ticker)}${h.live ? '' : ' <span class="stale-dot" title="not live">•</span>'}</span>
+            <span class="holding-qty">${h.quantity} ${h.price ? `@ ${h.price} ${esc(h.currency)}` : ''}</span>
+          </div>
+          <span class="holding-value">${fmt(h.value_ils)}</span>
+        </div>`).join('') : '';
+    }
+
+    function renderPerformance(perf, benchLabel, configured, snapshotCount) {
+      const hint = document.getElementById('pf-perf-hint');
+      const labels = perf.map(p => p.date);
+      const port = perf.map(p => p.portfolio);
+      const bench = perf.map(p => p.benchmark);
+      const hasBench = bench.some(v => v !== null);
+
+      if (snapshotCount < 2) {
+        hint.textContent = 'Log your portfolio for a second month to see performance.';
+      } else if (!configured) {
+        hint.textContent = `Add MARKET_DATA_API_KEY to compare against ${benchLabel}.`;
+      } else if (!hasBench) {
+        hint.textContent = `${benchLabel} data unavailable right now.`;
+      } else {
+        const last = perf[perf.length - 1];
+        const diff = (last.portfolio - last.benchmark).toFixed(1);
+        hint.textContent = diff >= 0
+          ? `You're ahead of ${benchLabel} by ${diff} points.`
+          : `You're behind ${benchLabel} by ${Math.abs(diff)} points.`;
+      }
+
+      const datasets = [
+        { label: 'You', data: port, borderColor: '#1478ff', tension: 0.3, pointRadius: 3, borderWidth: 2, fill: false },
+      ];
+      if (hasBench) {
+        datasets.push({
+          label: benchLabel, data: bench, borderColor: '#a8aeba', borderDash: [5, 4],
+          tension: 0.3, pointRadius: 0, borderWidth: 2, fill: false,
+        });
+      }
+
+      if (charts.performance) {
+        charts.performance.data.labels = labels;
+        charts.performance.data.datasets = datasets;
+        charts.performance.update();
+        return;
+      }
+      charts.performance = new Chart(document.getElementById('chart-performance'), {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          plugins: { legend: { labels: { color: AXIS, boxWidth: 12 } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: AXIS } },
+            y: { grid: { color: GRID }, ticks: { color: AXIS }, title: { display: true, text: 'Indexed to 100', color: AXIS } },
+          },
+        },
+      });
+    }
+
+    // Portfolio snapshot modal
+    function holdingRowHtml() {
+      return `<div class="snap-holding">
+        <input type="text" class="snap-ticker" placeholder="Ticker (e.g. VOO)">
+        <input type="number" class="snap-qty" placeholder="Qty" step="0.0001">
+        <input type="number" class="snap-manual" placeholder="Value if no ticker" step="0.01">
+        <button type="button" class="snap-remove">✕</button>
+      </div>`;
+    }
+
+    document.getElementById('btn-add-snapshot').addEventListener('click', () => {
+      document.getElementById('snap-date').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('snap-holdings').innerHTML = holdingRowHtml();
+      bindHoldingRemovers();
+      document.getElementById('snapshot-modal-backdrop').classList.remove('hidden');
+    });
+
+    document.getElementById('btn-add-holding').addEventListener('click', () => {
+      document.getElementById('snap-holdings').insertAdjacentHTML('beforeend', holdingRowHtml());
+      bindHoldingRemovers();
+    });
+
+    function bindHoldingRemovers() {
+      document.querySelectorAll('.snap-remove').forEach(btn => {
+        btn.onclick = () => btn.parentElement.remove();
+      });
+    }
+
+    document.getElementById('snapshot-cancel').addEventListener('click', () => {
+      document.getElementById('snapshot-modal-backdrop').classList.add('hidden');
+    });
+
+    document.getElementById('snapshot-save').addEventListener('click', async () => {
+      const holdings = [...document.querySelectorAll('.snap-holding')].map(row => ({
+        ticker: row.querySelector('.snap-ticker').value.trim(),
+        quantity: parseFloat(row.querySelector('.snap-qty').value || '0'),
+        manual_value: row.querySelector('.snap-manual').value || null,
+      })).filter(h => h.ticker);
+
+      const res = await fetch('/portfolio/snapshots', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          as_of_date: document.getElementById('snap-date').value,
+          contribution: document.getElementById('snap-contribution').value || 0,
+          cash_value: document.getElementById('snap-cash').value || 0,
+          holdings,
+        }),
+      });
+      document.getElementById('snapshot-modal-backdrop').classList.add('hidden');
+      if (res.ok) {
+        showToast('Portfolio logged');
+        ['snap-contribution', 'snap-cash'].forEach(id => document.getElementById(id).value = '');
+        await Promise.all([loadPortfolio(), loadNetWorth()]);
+      } else {
+        showToast('Could not save portfolio');
+      }
+    });
+
+    // ── Transactions ──────────────────────────────────────────
+
+    async function loadTransactions() {
+      transactions = await (await fetch('/api/transactions?days=365')).json();
+      renderReviewQueue();
+      renderTxnList();
+    }
+
+    function categoryOptions(selectedId) {
+      const groups = categories.filter(c => c.is_group);
+      return groups.map(g => {
+        const kids = categories.filter(c => c.parent_id === g.id);
+        if (!kids.length) return '';
+        return `<optgroup label="${esc(g.icon || '')} ${esc(g.name)}">` +
+          kids.map(c => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.icon || ''} ${esc(c.name)}</option>`).join('') +
+          `</optgroup>`;
+      }).join('');
+    }
+
+    function renderReviewQueue() {
+      const needsReview = transactions.filter(t => t.category_source === 'default');
+      const list = document.getElementById('review-list');
+      document.getElementById('review-empty').classList.toggle('hidden', needsReview.length > 0);
+      list.innerHTML = needsReview.map(t => `
+        <div class="review-item" data-id="${t.id}">
+          <div class="review-info">
+            <span class="review-merchant">${esc(t.merchant)}</span>
+            <span class="review-meta">${t.date} · <span class="${t.txn_type}">${t.txn_type === 'income' ? '+' : ''}${fmt2(t.amount)}</span></span>
+          </div>
+          <select class="review-category-select" data-id="${t.id}">${categoryOptions(t.category_id)}</select>
+        </div>`).join('');
+      list.querySelectorAll('.review-category-select').forEach(sel => sel.addEventListener('change', onCategoryCorrect));
+    }
+
+    function renderTxnList() {
+      const list = document.getElementById('txn-list');
+      list.innerHTML = transactions.map(t => `
+        <div class="txn-row" data-id="${t.id}">
+          <div class="txn-info">
+            <span class="txn-merchant">${esc(t.merchant)}</span>
+            <span class="txn-meta">${t.date} · ${t.category_icon || ''} ${esc(t.category_name || '')}</span>
+          </div>
+          <span class="txn-amount ${t.txn_type}">${t.txn_type === 'income' ? '+' : ''}${fmt2(t.amount)}</span>
+          <select class="txn-category-select" data-id="${t.id}">${categoryOptions(t.category_id)}</select>
+          <button type="button" class="txn-delete" data-id="${t.id}">🗑</button>
+        </div>`).join('');
+      list.querySelectorAll('.txn-category-select').forEach(sel => sel.addEventListener('change', onCategoryCorrect));
+      list.querySelectorAll('.txn-delete').forEach(btn => btn.addEventListener('click', onDeleteTransaction));
+    }
+
+    async function onCategoryCorrect(e) {
+      await fetch(`/transactions/${e.target.dataset.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_id: parseInt(e.target.value, 10) }),
+      });
+      showToast('Categorised — future matches will follow');
+      await Promise.all([loadSummary(), loadTransactions()]);
+    }
+
+    async function onDeleteTransaction(e) {
+      await fetch(`/transactions/${e.target.dataset.id}`, { method: 'DELETE' });
+      await Promise.all([loadSummary(), loadTransactions()]);
+    }
+
+    // ── Upload ────────────────────────────────────────────────
+
+    document.getElementById('btn-new-account').addEventListener('click', () => {
+      document.getElementById('new-account-form').classList.toggle('hidden');
+    });
+
+    document.getElementById('btn-save-account').addEventListener('click', async () => {
+      const name = document.getElementById('new-account-name').value.trim();
+      if (!name) return showToast('Account name required');
+      const res = await fetch('/accounts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          institution: document.getElementById('new-account-institution').value.trim(),
+          account_type: document.getElementById('new-account-type').value,
+        }),
+      });
+      if (res.ok) {
+        showToast('Account added');
+        document.getElementById('new-account-form').classList.add('hidden');
+        document.getElementById('new-account-name').value = '';
+        document.getElementById('new-account-institution').value = '';
+        await loadAccounts();
+      }
+    });
+
+    document.getElementById('btn-upload').addEventListener('click', async () => {
+      const accountId = document.getElementById('upload-account').value;
+      const file = document.getElementById('upload-file').files[0];
+      if (!accountId) return showToast('Add or select an account first');
+      if (!file) return showToast('Choose a CSV file');
+
+      const account = accounts.find(a => String(a.id) === String(accountId));
+      pendingUpload = { file, accountId };
+
+      if (account && account.has_mapping) {
+        await doUpload(null);
+      } else {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch('/upload/sniff', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error || 'Could not read file');
+        openMappingModal(data);
+      }
+    });
+
+    function openMappingModal(sniffData) {
+      const opts = sniffData.headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`).join('');
+      ['map-date', 'map-amount', 'map-merchant'].forEach(id => document.getElementById(id).innerHTML = opts);
+      if (sniffData.guess.date) document.getElementById('map-date').value = sniffData.guess.date;
+      if (sniffData.guess.amount) document.getElementById('map-amount').value = sniffData.guess.amount;
+      if (sniffData.guess.merchant) document.getElementById('map-merchant').value = sniffData.guess.merchant;
+      document.getElementById('mapping-modal-backdrop').classList.remove('hidden');
+    }
+
+    document.getElementById('mapping-cancel').addEventListener('click', () => {
+      document.getElementById('mapping-modal-backdrop').classList.add('hidden');
+      pendingUpload = null;
+    });
+
+    document.getElementById('mapping-confirm').addEventListener('click', async () => {
+      const columnMapping = {
+        date: document.getElementById('map-date').value,
+        amount: document.getElementById('map-amount').value,
+        merchant: document.getElementById('map-merchant').value,
+        amount_sign: document.getElementById('map-sign').value,
+      };
+      document.getElementById('mapping-modal-backdrop').classList.add('hidden');
+      await doUpload(columnMapping);
+    });
+
+    async function doUpload(columnMapping) {
+      if (!pendingUpload) return;
+      const fd = new FormData();
+      fd.append('file', pendingUpload.file);
+      fd.append('account_id', pendingUpload.accountId);
+      if (columnMapping) fd.append('column_mapping', JSON.stringify(columnMapping));
+      const res = await fetch('/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Upload failed');
+      } else {
+        showToast(`Imported ${data.imported_count} · Skipped ${data.duplicate_count} duplicates`);
+        document.getElementById('upload-file').value = '';
+        await loadAll();
+      }
+      pendingUpload = null;
+    }
+
+    // ── Collapsibles ──────────────────────────────────────────
+
+    function bindCollapsible(headerId, panelId, iconId) {
+      document.getElementById(headerId).addEventListener('click', () => {
+        const panel = document.getElementById(panelId);
+        panel.classList.toggle('hidden');
+        document.getElementById(iconId).textContent = panel.classList.contains('hidden') ? '▾' : '▴';
+      });
+    }
+    bindCollapsible('txn-toggle', 'txn-list', 'txn-toggle-icon');
+    bindCollapsible('nw-toggle', 'nw-panel', 'nw-toggle-icon');
+
+    // ── Push notifications ────────────────────────────────────
+
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const raw = atob(base64);
+      return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+    }
+
+    document.getElementById('btn-enable-push').addEventListener('click', async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        return showToast('Push not supported on this browser');
+      }
+      const { public_key: publicKey, configured } = await (await fetch('/push/public-key')).json();
+      if (!configured) return showToast('Push keys not set up on the server yet');
+
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return showToast('Notifications blocked');
+
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+      const res = await fetch('/push/subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub.toJSON()),
+      });
+      showToast(res.ok ? 'Reminders on — 8th of each month, 20:00' : 'Could not enable reminders');
+    });
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>
