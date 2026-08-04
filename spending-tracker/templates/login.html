@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>SpendTrack — {% if mode == 'register' %}Set Up{% else %}Login{% endif %}</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2a2d35">
+  <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
+  <link rel="stylesheet" href="/static/style.css?v=1">
+</head>
+<body class="auth-body">
+  <div class="auth-card">
+    <div class="auth-logo">💳 SpendTrack</div>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="flash">{{ messages[0] }}</div>
+      {% endif %}
+    {% endwith %}
+
+    {% if mode == 'register' %}
+    <h2>Set up your account</h2>
+    <form method="POST" action="/register">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="text" name="username" placeholder="Username" required>
+      <input type="email" name="email" placeholder="Email" required>
+      <input type="password" name="password" placeholder="Password (min 8 chars)" required minlength="8">
+      <button type="submit" class="btn-primary">Create Account</button>
+    </form>
+    {% else %}
+    <h2>Welcome back</h2>
+    <form method="POST" action="/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="text" name="username" placeholder="Username" required>
+      <input type="password" name="password" placeholder="Password" required>
+      <button type="submit" class="btn-primary">Log In</button>
+    </form>
+    <p class="auth-switch">First time? <a href="/register">Set up account</a></p>
+    {% endif %}
+  </div>
+</body>
+</html>
