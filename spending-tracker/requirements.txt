@@ -8,3 +8,4 @@ requests
 pywebpush
 openpyxl
 xlrd
+beautifulsoup4

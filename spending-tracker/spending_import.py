@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import re
+import unicodedata
 from datetime import datetime
 
 from models import (db, Category, Transaction, Import, CategorizationRule,
@@ -11,7 +12,38 @@ from models import (db, Category, Transaction, Import, CategorizationRule,
 MAX_FILE_BYTES = 2 * 1024 * 1024  # 2MB
 MAX_ROWS = 10000
 
-DATE_FORMATS = ['%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y', '%Y/%m/%d', '%d.%m.%Y']
+# Hebrew exports embed bidi control characters inside date and amount cells.
+# They are NOT whitespace, so .strip() leaves them in place and both strptime()
+# and float() then fail on what looks like a perfectly ordinary value.
+_CELL_TRANSLATE = {c: None for c in (
+    0x200E, 0x200F,                             # LRM, RLM
+    0x202A, 0x202B, 0x202C, 0x202D, 0x202E,     # embeddings / overrides
+    0x2066, 0x2067, 0x2068, 0x2069,             # isolates
+    0xFEFF,                                     # BOM / zero-width no-break space
+)}
+_CELL_TRANSLATE[0x00A0] = 0x20      # non-breaking space -> ordinary space
+# Israeli statements mix gershayim, a modifier double-acute and ASCII quotes in
+# the same document, so normalise them before comparing marker text.
+_CELL_TRANSLATE.update({0x05F4: 0x22, 0x02DD: 0x22, 0x201C: 0x22, 0x201D: 0x22,
+                        0x05F3: 0x27, 0x2018: 0x27, 0x2019: 0x27})
+
+
+def _clean(value):
+    """Normalise a raw cell into comparable, parseable text."""
+    if value is None:
+        return ''
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d')
+    return unicodedata.normalize('NFKC', str(value)).translate(_CELL_TRANSLATE).strip()
+
+
+# Two-digit-year formats come last so a four-digit year always wins the match.
+# Isracard emits dd.mm.yy, which no four-digit pattern can parse.
+DATE_FORMATS = [
+    '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y', '%Y/%m/%d', '%d.%m.%Y',
+    '%Y-%m-%d %H:%M:%S', '%d/%m/%Y %H:%M',
+    '%d/%m/%y', '%d.%m.%y', '%d-%m-%y',
+]
 
 _PROCESSOR_PREFIX = re.compile(r'^(SQ|TST|PAYPAL|PY|SP|IN)\s*\*\s*', re.IGNORECASE)
 _CITY_STATE_SUFFIX = re.compile(r'\s+(?:[A-Z]+\s+){1,2}[A-Z]{2}$')  # e.g. " SEATTLE WA"
@@ -150,94 +182,172 @@ def seed_default_rules(user):
         db.session.commit()
 
 
-HEADER_HINTS = (
-    'date', 'amount', 'debit', 'credit', 'charge', 'sum', 'description', 'merchant',
-    'payee', 'business', 'תאריך', 'סכום', 'חיוב', 'תיאור', 'בית עסק', 'עסקה',
+# Column names seen across Israeli issuers. Used both to locate the header row
+# and to fall back when one workbook mixes tables with different headings —
+# Isracard's foreign-currency sheet uses different names from its domestic one.
+COLUMN_ALIASES = {
+    'date': ('תאריך רכישה', 'תאריך עסקה', 'תאריך קניה', 'תאריך חיוב', 'תאריך',
+             'date', 'transaction date', 'purchase date'),
+    'amount': ('סכום חיוב', 'סכום לחיוב', 'סכום עסקה', 'סכום מקורי', 'סכום',
+             'בחובה', 'בזכות', 'amount', 'debit', 'credit', 'charge', 'sum'),
+    'merchant': ('שם בית העסק', 'שם בית עסק', 'בית עסק', 'שם בית העסק/תיאור',
+             'פירוט נוסף', 'פרוט נוסף', 'תיאור', 'סוג תנועה',
+             'description', 'merchant', 'payee', 'business', 'details'),
+}
+HEADER_HINTS = tuple(h for group in COLUMN_ALIASES.values() for h in group)
+
+# Summary and pending sections that sit inside the same sheet as real rows.
+SKIP_ROW_MARKERS = ('סה"כ', 'סך הכל', 'עסקאות שטרם נקלטו', 'total')
+
+# Signatures pandas uses to identify real spreadsheets; anything else with an
+# .xls name is usually HTML or SpreadsheetML wearing a costume.
+_XLS_SIGNATURES = (
+    b"\x09\x00\x04\x00\x07\x00\x10\x00", b"\x09\x02\x06\x00\x00\x00\x10\x00",
+    b"\x09\x04\x06\x00\x00\x10\x00", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",
 )
+_ZIP_SIGNATURE = b"PK\x03\x04"
 
 
 def _is_xlsx(file_bytes):
-    return file_bytes[:2] == b'PK'          # zip container
+    return file_bytes[:4] == _ZIP_SIGNATURE
 
 
 def _is_xls(file_bytes):
-    return file_bytes[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'   # OLE2 compound file
+    return any(file_bytes.startswith(sig) for sig in _XLS_SIGNATURES)
+
+
+def _is_markup(file_bytes):
+    """Some issuers (Bank Leumi) export an HTML table named .xls."""
+    head = file_bytes[:4096].lstrip(b'\xef\xbb\xbf \t\r\n').lower()
+    return head.startswith(b'<') and (b'<html' in head or b'<table' in head or b'<?xml' in head)
 
 
 def _cell_to_text(value):
-    if value is None:
-        return ''
-    if isinstance(value, datetime):
-        return value.strftime('%Y-%m-%d')
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
-    return str(value).strip()
+    return _clean(value)
+
+
+def _decode_hebrew(file_bytes):
+    """Hebrew HTML exports are frequently CP1255 rather than UTF-8."""
+    for encoding in ('utf-8-sig', 'utf-8', 'windows-1255', 'cp1255'):
+        try:
+            return file_bytes.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return file_bytes.decode('utf-8', errors='replace')
+
+
+def _read_markup_rows(file_bytes):
+    """Extract the largest <table> from an HTML-disguised export."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        raise ImportError_('This file is an HTML table saved as .xls, and the '
+                           'server is missing beautifulsoup4 to read it')
+    soup = BeautifulSoup(_decode_hebrew(file_bytes), 'html.parser')
+    tables = soup.find_all('table')
+    if not tables:
+        raise ImportError_('No table found inside the file')
+    # Leumi marks the real one with class="xlTable"; otherwise take the biggest.
+    table = (soup.find('table', class_='xlTable')
+             or max(tables, key=lambda t: len(t.find_all('tr'))))
+    rows = []
+    for tr in table.find_all('tr'):
+        cells = tr.find_all(['td', 'th'])
+        if cells:
+            rows.append([_clean(c.get_text()) for c in cells])
+    return rows
 
 
 def _read_excel_rows(file_bytes):
-    """Every cell of the first sheet as text, for .xlsx or .xls."""
+    """Every cell of every sheet as text. Isracard splits domestic and
+    foreign-currency transactions across separate sheets."""
     if _is_xlsx(file_bytes):
         try:
             from openpyxl import load_workbook
         except ImportError:
-            raise ImportError_('Excel support not installed on the server')
+            raise ImportError_('Excel support (openpyxl) is not installed on the server')
         wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
-        sheet = wb[wb.sheetnames[0]]
-        return [[_cell_to_text(c) for c in row] for row in sheet.iter_rows(values_only=True)]
+        rows = []
+        for name in wb.sheetnames:
+            for row in wb[name].iter_rows(values_only=True):
+                rows.append([_cell_to_text(c) for c in row])
+        return rows
 
     try:
         import xlrd
     except ImportError:
-        raise ImportError_('Old-style .xls support not installed on the server')
+        raise ImportError_('Reading .xls needs the xlrd package, which is not '
+                           'installed on the server')
     book = xlrd.open_workbook(file_contents=file_bytes)
-    sheet = book.sheet_by_index(0)
     rows = []
-    for r in range(sheet.nrows):
-        row = []
-        for c in range(sheet.ncols):
-            cell = sheet.cell(r, c)
-            if cell.ctype == xlrd.XL_CELL_DATE:
-                row.append(xlrd.xldate_as_datetime(cell.value, book.datemode).strftime('%Y-%m-%d'))
-            else:
-                row.append(_cell_to_text(cell.value))
-        rows.append(row)
+    for sheet in book.sheets():
+        for r in range(sheet.nrows):
+            row = []
+            for c in range(sheet.ncols):
+                cell = sheet.cell(r, c)
+                if cell.ctype == xlrd.XL_CELL_DATE:
+                    row.append(xlrd.xldate_as_datetime(cell.value, book.datemode)
+                               .strftime('%Y-%m-%d'))
+                else:
+                    row.append(_cell_to_text(cell.value))
+            rows.append(row)
     return rows
 
 
 def _find_header_row(rows):
-    """Card exports put a title, card number and blank lines above the real header.
+    """Score candidate rows by how many recognisable column names they hold.
 
-    Pick the first row containing a recognisable column name; fall back to the
-    first row that has at least two filled cells.
+    Taking the *first* row containing a hint is wrong: Isracard's preamble has
+    lines like 'פירוט עסקאות ... לתאריך חיוב 02/08/2025', which contains תאריך
+    and would win over the genuine header a few rows below.
     """
-    for idx, row in enumerate(rows[:30]):
-        joined = ' '.join(row).lower()
-        if any(hint in joined for hint in HEADER_HINTS):
-            if sum(1 for c in row if c.strip()) >= 2:
-                return idx
+    best_idx, best_score = None, 0
+    for idx, row in enumerate(rows[:40]):
+        cells = [_clean(c).lower() for c in row]
+        if sum(1 for c in cells if c) < 2:
+            continue
+        score = sum(1 for c in cells if any(hint.lower() in c for hint in HEADER_HINTS))
+        if score > best_score:
+            best_idx, best_score = idx, score
+    if best_idx is not None:
+        return best_idx
     for idx, row in enumerate(rows):
-        if sum(1 for c in row if c.strip()) >= 2:
+        if sum(1 for c in row if _clean(c)) >= 2:
             return idx
     return 0
 
 
+def _is_noise_row(values):
+    joined = ' '.join(_clean(v) for v in values).lower()
+    return any(marker.lower() in joined for marker in SKIP_ROW_MARKERS)
+
+
 def read_table(file_bytes, filename=None):
-    """Normalise CSV / XLSX / XLS into (headers, rows-as-dicts)."""
+    """Normalise CSV / XLSX / XLS / HTML-as-XLS into (headers, rows-as-dicts)."""
     name = (filename or '').lower()
-    is_excel = _is_xlsx(file_bytes) or _is_xls(file_bytes) or name.endswith(('.xlsx', '.xls'))
 
-    if is_excel:
+    if _is_markup(file_bytes):
+        raw = _read_markup_rows(file_bytes)
+    elif _is_xlsx(file_bytes) or _is_xls(file_bytes):
         raw = _read_excel_rows(file_bytes)
+    elif name.endswith(('.xlsx', '.xls')):
+        # Named like a spreadsheet but no recognised signature — try Excel, then
+        # fall back to CSV rather than failing outright.
+        try:
+            raw = _read_excel_rows(file_bytes)
+        except Exception:
+            raw = list(csv.reader(io.StringIO(_decode_hebrew(file_bytes))))
     else:
-        text = file_bytes.decode('utf-8-sig', errors='replace')
-        raw = [row for row in csv.reader(io.StringIO(text))]
+        raw = list(csv.reader(io.StringIO(_decode_hebrew(file_bytes))))
 
-    raw = [r for r in raw if any(str(c).strip() for c in r)]   # drop blank lines
+    raw = [r for r in raw if any(_clean(c) for c in r)]   # drop blank lines
     if not raw:
         raise ImportError_('The file has no rows in it')
 
     start = _find_header_row(raw)
-    headers = [str(h).strip() for h in raw[start]]
+    headers = [_clean(h) for h in raw[start]]
     # De-duplicate blank/repeated header cells so dict keys stay unique
     seen = {}
     clean_headers = []
@@ -256,13 +366,33 @@ def read_table(file_bytes, filename=None):
 
     rows = []
     for row in raw[start + 1:]:
-        padded = list(row) + [''] * (len(clean_headers) - len(row))
+        if _is_noise_row(row):        # totals, "not yet captured" section headings
+            continue
+        padded = [_clean(c) for c in row] + [''] * (len(clean_headers) - len(row))
         rows.append(dict(zip(clean_headers, padded)))
 
     if not rows:
         raise ImportError_('Found column headers but no transactions below them')
 
     return clean_headers, rows
+
+
+def resolve_field(row, mapped_column, kind):
+    """Read a mapped column, falling back to known aliases.
+
+    A single workbook can hold tables with different headings (Isracard keeps
+    foreign-currency purchases on their own sheet under different names), so a
+    column chosen from one table may be absent from another.
+    """
+    value = row.get(mapped_column)
+    if value not in (None, ''):
+        return value
+    lowered = {k.lower(): v for k, v in row.items()}
+    for alias in COLUMN_ALIASES.get(kind, ()):
+        value = lowered.get(alias.lower())
+        if value not in (None, ''):
+            return value
+    return ''
 
 
 def sniff_columns(file_bytes, filename=None):
@@ -272,19 +402,28 @@ def sniff_columns(file_bytes, filename=None):
         raise ImportError_('Empty file')
     sample = [[r.get(h, '') for h in headers] for r in rows[:5]]
 
+    # Prefer an exact alias match, then a substring match. Aliases are ordered
+    # most-specific first, so 'סכום חיוב' (the amount actually charged) beats
+    # 'סכום עסקה' (the original transaction amount) on Isracard exports.
     guess = {'date': None, 'amount': None, 'merchant': None}
-    for h in headers:
-        low = h.lower()
-        if guess['date'] is None and ('date' in low or 'תאריך' in h):
-            guess['date'] = h
-        if guess['amount'] is None and any(k in low for k in ('amount', 'debit', 'credit', 'charge', 'sum')):
-            guess['amount'] = h
-        if guess['amount'] is None and ('סכום' in h or 'חיוב' in h):
-            guess['amount'] = h
-        if guess['merchant'] is None and any(k in low for k in ('description', 'merchant', 'payee', 'name', 'details', 'business')):
-            guess['merchant'] = h
-        if guess['merchant'] is None and ('תיאור' in h or 'בית עסק' in h or 'שם' in h):
-            guess['merchant'] = h
+    lowered = [(h, h.lower()) for h in headers]
+    for kind, aliases in COLUMN_ALIASES.items():
+        for alias in aliases:
+            for original, low in lowered:
+                if low == alias.lower():
+                    guess[kind] = original
+                    break
+            if guess[kind]:
+                break
+        if guess[kind]:
+            continue
+        for alias in aliases:
+            for original, low in lowered:
+                if alias.lower() in low:
+                    guess[kind] = original
+                    break
+            if guess[kind]:
+                break
 
     if guess['date'] is None and headers:
         guess['date'] = headers[0]
@@ -337,7 +476,7 @@ def compute_dedup_hash(account_id, txn_date, signed_amount, merchant_raw):
 
 
 def _parse_date(value, known_format=None):
-    value = (value or '').strip()
+    value = _clean(value)
     if not value:
         return None, None
     formats = ([known_format] if known_format else []) + DATE_FORMATS
@@ -348,16 +487,35 @@ def _parse_date(value, known_format=None):
             return datetime.strptime(value, fmt).date(), fmt
         except ValueError:
             continue
+    # Last resort: dig a date out of a longer string such as "לתאריך חיוב 02/08/2025"
+    m = re.search(r'(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})', value)
+    if m:
+        d, mth, y = m.groups()
+        for fmt in ('%d/%m/%Y', '%d/%m/%y'):
+            try:
+                return datetime.strptime(f'{d}/{mth}/{y}', fmt).date(), None
+            except ValueError:
+                continue
     return None, None
 
 
 def _parse_amount(value, amount_sign):
-    value = (value or '').strip().replace(',', '').replace('$', '').replace('₪', '')
+    value = _clean(value).replace(',', '').replace('$', '').replace('₪', '')
+    value = value.replace('NIS', '').replace('ש"ח', '')
+    # Spaces can be thousands separators here — a non-breaking space became an
+    # ordinary one during cleaning, and float() rejects either.
+    value = value.replace(' ', '')
     if not value:
         return None
-    negative = value.startswith('(') and value.endswith(')')
-    if negative:
+
+    negative = False
+    if value.startswith('(') and value.endswith(')'):
+        negative = True
         value = value[1:-1]
+    if value.endswith('-'):     # RTL exports place the minus sign after the number
+        negative = True
+        value = value[:-1].strip()
+
     try:
         amount = float(value)
     except ValueError:
@@ -415,17 +573,17 @@ def parse_and_import(file_bytes, account, column_mapping, user, filename=None):
     resolved_date_format = date_format
 
     for row in rows:
-        txn_date, used_format = _parse_date(_coerce_date_text(row.get(date_col, '')), resolved_date_format)
+        txn_date, used_format = _parse_date(resolve_field(row, date_col, 'date'), resolved_date_format)
         if txn_date is None:
             continue
         if resolved_date_format is None:
             resolved_date_format = used_format
 
-        signed = _parse_amount(row.get(amount_col, ''), amount_sign)
+        signed = _parse_amount(resolve_field(row, amount_col, 'amount'), amount_sign)
         if signed is None or signed == 0:
             continue
 
-        raw_merchant = row.get(merchant_col, '') or ''
+        raw_merchant = resolve_field(row, merchant_col, 'merchant') or ''
         merchant_normalized = normalize_merchant(raw_merchant)
         dedup_hash = compute_dedup_hash(account.id, txn_date, signed, raw_merchant)
 
