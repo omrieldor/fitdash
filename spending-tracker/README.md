@@ -72,17 +72,73 @@ invalidate the subscription already on your phone.
 
 ## Enabling the monthly reminder
 
-Push **requires HTTPS** — iOS only delivers it to a Home Screen PWA over TLS.
+**This is the configuration that actually works on iOS.** It took several
+attempts; the failure mode of every wrong variant was the 🔔 button doing
+absolutely nothing — no prompt, no error — so the notes below record what the
+working setup is and why each piece is required.
 
-1. `bash deploy/add-ssl.sh spend.example.com`
-2. Open the HTTPS URL in Safari → Share → **Add to Home Screen**
-3. Launch from the Home Screen icon (not from Safari) and tap 🔔
+### The six things that must all be true
+
+1. **Served over HTTPS.** iOS only delivers web push to a PWA over TLS.
+   `bash deploy/add-ssl.sh yourdomain` (a free DuckDNS subdomain is fine).
+   Point the domain at the server's **public IP** — pointing it at the laptop's
+   IP makes certbot fail with "Timeout during connect".
+2. **Installed to the Home Screen.** Open the HTTPS URL in **Safari** →
+   Share → Add to Home Screen. Push does not work from a Safari tab; the
+   `PushManager` API is absent there.
+3. **Launched from the Home Screen icon**, not from Safari. Subscribing from a
+   browser tab silently produces nothing.
+4. **The service worker must be served from `/sw.js`, not `/static/sw.js`.**
+   This was the actual bug. A worker at `/static/sw.js` gets scope `/static/`,
+   which does not cover the dashboard at `/`, so it never controls the page and
+   `navigator.serviceWorker.ready` never resolves — the handler hangs forever
+   with no output. `app.py` serves it from the root with a
+   `Service-Worker-Allowed: /` header.
+5. **`Notification.requestPermission()` must be called before any `await`.**
+   Safari discards the tap's user activation across an async call and then
+   refuses to show the prompt. Request permission first, then fetch the key.
+6. **VAPID keys in `.env`, loaded by systemd.** `setup-server.sh` generates them
+   with the **venv** python (the system python may lack a working `cryptography`)
+   and the service unit loads them via `EnvironmentFile=`.
+
+### What success looks like
+
+Tapping 🔔 shows an iOS permission prompt, then this toast:
+
+```
+Reminders on — 8th of each month, 20:00
+```
+
+Confirm the subscription reached the server:
+
+```bash
+cd /home/ubuntu/fitdash/spending-tracker
+venv/bin/python3 -c "from app import app; from models import PushSubscription; \
+  app.app_context().push(); print(PushSubscription.query.count())"
+```
+
+`1` (or more) means it registered. `0` means it didn't — recheck items 3–5.
+
+### Sending a test notification
+
+`send_reminders.py` reads VAPID keys from the environment, so `.env` has to be
+sourced first. Without it the script prints *"VAPID keys not configured"* even
+though the keys exist:
+
+```bash
+cd /home/ubuntu/fitdash/spending-tracker && set -a && source .env && set +a && \
+  venv/bin/python send_reminders.py --force
+```
+
+Expected output: `Reminders sent: 1`, and the phone buzzes. The scheduled run
+does not need this because systemd supplies the environment.
+
+### How the schedule works
 
 A systemd timer ticks hourly; `send_reminders.py` fires on the 8th at 20:00
 Israel time, catching up through the 10th if the server was down, and records
-each send so it never double-notifies. DST is handled via `Asia/Jerusalem`.
-
-Send one on demand: `venv/bin/python send_reminders.py --force`
+each send in `ReminderLog` so it never double-notifies. DST is handled via
+`Asia/Jerusalem` — 17:00 UTC in summer, 18:00 in winter.
 
 ## Local development
 
