@@ -6,3 +6,5 @@ werkzeug
 gunicorn
 requests
 pywebpush
+openpyxl
+xlrd
