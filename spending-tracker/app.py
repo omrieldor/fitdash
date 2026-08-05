@@ -1,5 +1,8 @@
+import hashlib
+import hmac
 import json
 import os
+import subprocess
 import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -849,6 +852,44 @@ def push_test():
     sent, failed = push.send_to_user(
         current_user, 'SpendTrack', 'Test notification — reminders are working.', '/')
     return jsonify({'sent': sent, 'failed': failed})
+
+
+# --- Auto-deploy webhook ---
+
+DEPLOY_SECRET = os.environ.get('DEPLOY_SECRET', '')
+REPO_DIR = os.environ.get('REPO_DIR', '/home/ubuntu/fitdash')
+APP_DIR = os.path.join(REPO_DIR, 'spending-tracker')
+
+
+@app.route('/deploy', methods=['POST'])
+@csrf.exempt
+def github_webhook():
+    """Pull and restart when GitHub reports a push to the default branch.
+
+    Disabled unless DEPLOY_SECRET is set, and every request must carry a valid
+    HMAC signature computed with it — the same scheme the fitness app uses.
+    """
+    if not DEPLOY_SECRET:
+        return jsonify({'status': 'not configured'}), 403
+
+    signature = request.headers.get('X-Hub-Signature-256', '')
+    expected = 'sha256=' + hmac.new(DEPLOY_SECRET.encode(), request.data, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return jsonify({'status': 'forbidden'}), 403
+
+    # Only act on pushes to the default branch, so feature branches don't deploy.
+    payload = request.get_json(silent=True) or {}
+    ref = payload.get('ref')
+    if ref and ref not in ('refs/heads/master', 'refs/heads/main'):
+        return jsonify({'status': f'ignored {ref}'}), 200
+
+    subprocess.Popen(
+        ['bash', '-c',
+         f'cd {REPO_DIR} && git pull && '
+         f'{APP_DIR}/venv/bin/pip install -q -r {APP_DIR}/requirements.txt && '
+         f'sudo systemctl restart spendtrack'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return jsonify({'status': 'deploying'})
 
 
 if __name__ == '__main__':
