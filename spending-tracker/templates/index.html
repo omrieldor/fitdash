@@ -8,7 +8,7 @@
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#2a2d35">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <link rel="stylesheet" href="/static/style.css?v=4">
   <script defer src="/static/chart.min.js"></script>
 </head>
 <body>
@@ -38,6 +38,7 @@
     </section>
 
     <!-- Month summary -->
+    <div class="window-label" id="window-label"></div>
     <section class="summary-bar">
       <div class="summary-card">
         <div class="summary-label">Income</div>
@@ -172,6 +173,31 @@
       <div id="txn-list" class="txn-list hidden"></div>
     </section>
 
+    <!-- Library: archived months, read-only -->
+    <section class="log-section">
+      <h3 class="collapsible-header" id="lib-toggle">📚 Library <span id="lib-toggle-icon">▾</span></h3>
+      <div id="lib-panel" class="hidden">
+        <div id="lib-list" class="lib-list"></div>
+        <div id="lib-empty" class="empty-hint hidden">No archived months yet — the current month moves here on the 7th.</div>
+        <div id="lib-detail" class="hidden">
+          <div class="lib-detail-head">
+            <button type="button" class="btn-outline" id="lib-back">← Months</button>
+            <span class="lib-detail-title" id="lib-detail-title"></span>
+          </div>
+          <section class="summary-bar">
+            <div class="summary-card"><div class="summary-label">Income</div><div class="summary-value income" id="lib-income">—</div></div>
+            <div class="summary-card"><div class="summary-label">Spent</div><div class="summary-value" id="lib-expense">—</div></div>
+            <div class="summary-card"><div class="summary-label">Saved</div><div class="summary-value" id="lib-net">—</div></div>
+          </section>
+          <h3 class="lib-sub">Where It Went</h3>
+          <canvas id="chart-lib-category"></canvas>
+          <div id="lib-category-legend" class="legend-list"></div>
+          <h3 class="lib-sub">Top Merchants</h3>
+          <div id="lib-merchants" class="merchant-list"></div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- Column mapping modal -->
@@ -263,6 +289,7 @@
 
     async function loadSummary() {
       const s = await (await fetch('/api/summary')).json();
+      document.getElementById('window-label').textContent = 'Showing ' + s.window_label;
       document.getElementById('sum-income').textContent = fmt(s.income_this_month);
       document.getElementById('sum-expense').textContent = fmt(s.expense_this_month);
 
@@ -684,7 +711,7 @@
     // ── Transactions ──────────────────────────────────────────
 
     async function loadTransactions() {
-      transactions = await (await fetch('/api/transactions?days=365')).json();
+      transactions = await (await fetch('/api/transactions')).json();
       renderReviewQueue();
       renderTxnList();
     }
@@ -721,7 +748,7 @@
         <div class="txn-row" data-id="${t.id}">
           <div class="txn-info">
             <span class="txn-merchant">${esc(t.merchant)}</span>
-            <span class="txn-meta">${t.date} · ${t.category_icon || ''} ${esc(t.category_name || '')}</span>
+            <span class="txn-meta">${t.date} · ${t.category_icon || ''} ${esc(t.category_name || '')}${t.card_label ? ` · <span class="card-chip">${esc(t.card_label)}</span>` : ''}</span>
           </div>
           <span class="txn-amount ${t.txn_type}">${t.txn_type === 'income' ? '+' : ''}${fmt2(t.amount)}</span>
           <select class="txn-category-select" data-id="${t.id}">${categoryOptions(t.category_id)}</select>
@@ -846,6 +873,80 @@
     }
     bindCollapsible('txn-toggle', 'txn-list', 'txn-toggle-icon');
     bindCollapsible('nw-toggle', 'nw-panel', 'nw-toggle-icon');
+
+    // ── Library (archived months, read-only) ─────────────────
+
+    let libraryLoaded = false;
+    document.getElementById('lib-toggle').addEventListener('click', async () => {
+      const panel = document.getElementById('lib-panel');
+      panel.classList.toggle('hidden');
+      document.getElementById('lib-toggle-icon').textContent =
+        panel.classList.contains('hidden') ? '▾' : '▴';
+      if (!panel.classList.contains('hidden') && !libraryLoaded) {
+        await loadLibrary();
+        libraryLoaded = true;
+      }
+    });
+
+    async function loadLibrary() {
+      const months = await (await fetch('/api/library')).json();
+      const list = document.getElementById('lib-list');
+      document.getElementById('lib-empty').classList.toggle('hidden', months.length > 0);
+      list.innerHTML = months.map(m => `
+        <button type="button" class="lib-month" data-id="${m.id}">
+          <span class="lib-month-label">${esc(m.label)}</span>
+          <span class="lib-month-nums">
+            <span class="income">+${fmt(m.income)}</span>
+            <span>−${fmt(m.expense)}</span>
+          </span>
+        </button>`).join('');
+      list.querySelectorAll('.lib-month').forEach(btn =>
+        btn.addEventListener('click', () => openLibraryMonth(btn.dataset.id)));
+    }
+
+    async function openLibraryMonth(id) {
+      const d = await (await fetch(`/api/library/${id}`)).json();
+      document.getElementById('lib-list').classList.add('hidden');
+      document.getElementById('lib-detail').classList.remove('hidden');
+      document.getElementById('lib-detail-title').textContent = d.label;
+      document.getElementById('lib-income').textContent = fmt(d.income);
+      document.getElementById('lib-expense').textContent = fmt(d.expense);
+      const net = document.getElementById('lib-net');
+      net.textContent = fmt(d.net);
+      net.style.color = d.net >= 0 ? 'var(--green)' : 'var(--red)';
+
+      const labels = d.by_group.map(g => `${g.icon || ''} ${g.name}`);
+      const data = d.by_group.map(g => g.total);
+      const colors = d.by_group.map(g => g.color || '#5a6070');
+      if (charts.libCategory) charts.libCategory.destroy();
+      charts.libCategory = new Chart(document.getElementById('chart-lib-category'), {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
+        options: { plugins: { legend: { display: false } }, cutout: '62%' },
+      });
+      document.getElementById('lib-category-legend').innerHTML = d.by_group.map(g => `
+        <div class="legend-row">
+          <span class="legend-dot" style="background:${g.color || '#5a6070'}"></span>
+          <span class="legend-name">${g.icon || ''} ${esc(g.name)}</span>
+          <span class="legend-value">${fmt(g.total)}</span>
+        </div>`).join('') || '<div class="empty-hint">No spending recorded</div>';
+
+      const max = Math.max(1, ...d.top_merchants.map(m => m.total));
+      document.getElementById('lib-merchants').innerHTML = d.top_merchants.map(m => `
+        <div class="merchant-row">
+          <div class="merchant-info">
+            <span class="merchant-name">${esc(m.merchant)}</span>
+            <span class="merchant-count">${m.count}×</span>
+          </div>
+          <div class="merchant-bar-track"><div class="merchant-bar" style="width:${(m.total / max * 100).toFixed(0)}%"></div></div>
+          <span class="merchant-total">${fmt(m.total)}</span>
+        </div>`).join('') || '<div class="empty-hint">No merchants</div>';
+    }
+
+    document.getElementById('lib-back').addEventListener('click', () => {
+      document.getElementById('lib-detail').classList.add('hidden');
+      document.getElementById('lib-list').classList.remove('hidden');
+    });
 
     // ── Push notifications ────────────────────────────────────
 

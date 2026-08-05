@@ -3,6 +3,33 @@
 A personal spending tracker, separate from the fitness app in this repo. Flask +
 SQLite, installed to the iPhone Home Screen as a PWA. All amounts in shekels.
 
+## Billing cycles and the Library
+
+The app runs on the card's billing cycle — the 8th of one month through the 7th
+of the next — not calendar months. The homepage shows the window opening at the
+most recently completed cycle, so the statement uploaded on the 8th stays front
+and centre until the following 7th. Everything older is archived automatically
+(lazily, on the first request after a 7th passes) into the **Library**: a
+read-only record per month with income vs spending, the category breakdown and
+top merchants. Per the owner's choice, archived transaction detail is
+permanently deleted — only the summary and the dedup hashes survive, so
+re-uploading an old statement still imports nothing.
+
+## Photo import ("post a photo in Claude chat")
+
+Post a photo of a salary slip, receipt or bank screenshot in a Claude chat
+session on this repo and ask to log it. The assistant extracts the entries,
+encrypts them with `inbox/public_key.pem` and pushes an `.enc` file; the deploy
+webhook restarts the service, which decrypts with `INBOX_PRIVATE_KEY` from
+`.env` and files the entries. Protocol details: `inbox/README.md`.
+
+## Card attribution
+
+Each imported transaction records which card paid for it (Visa •1234, Amex,
+חבר טעמים, חבר של קבע…), detected automatically from a card column, the
+statement's per-card section headings, or the account name — shown as a chip
+in All Transactions.
+
 ## What it does
 
 - **Statement import.** Upload a CSV export from your bank or card. The first
@@ -30,10 +57,11 @@ Two levels — a group and its children:
 | Group | Children |
 |---|---|
 | Income | Salary, Bonus, Freelance, Dividends, Interest, Refunds, Other Income |
-| Food | Groceries, Restaurants, Cafés, Food Delivery |
+| Food | Groceries, Restaurants, Cafés, Food Delivery, Snacks, Bars |
 | Car | Fuel, Car Insurance, Car Maintenance, Parking, Tolls, Car Payment |
 | Home | Rent / Mortgage, Utilities, Internet & TV, Home Maintenance, Furniture & Appliances, Home Insurance |
 | Cash | Cash Withdrawal |
+| Friends | Gifts, Money Lent, Bill Split |
 | Transport | Public Transport, Taxi & Rideshare |
 | Shopping | Clothing, Electronics, General Shopping |
 | Health | Pharmacy, Doctor & Dental, Gym & Fitness, Health Insurance |
@@ -69,6 +97,7 @@ invalidate the subscription already on your phone.
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web push. Generated at setup; keep stable. |
 | `VAPID_SUBJECT` | Contact `mailto:` for push services. |
 | `MARKET_DATA_API_KEY` | [Twelve Data](https://twelvedata.com) key for live prices. Optional — without it the portfolio falls back to the values you typed. |
+| `INBOX_PRIVATE_KEY` | Decrypts photo-import inbox files (base64 PKCS8 DER). Without it, photo import is silently skipped. |
 
 ## Enabling the monthly reminder
 

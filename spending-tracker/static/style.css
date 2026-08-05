@@ -261,3 +261,49 @@ canvas { max-height: 220px; }
   text-align: center;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── Billing window + cards + Library ── */
+
+.window-label {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--dim);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: -0.2rem 0 -0.3rem;
+}
+
+.card-chip {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  background: var(--faint);
+  color: var(--silver);
+  font-size: 0.62rem;
+  vertical-align: middle;
+}
+
+.lib-list { display: flex; flex-direction: column; gap: 0.55rem; }
+.lib-month {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--neo-in);
+  font-family: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+}
+.lib-month-label { font-weight: 700; }
+.lib-month-nums { display: flex; gap: 0.7rem; font-size: 0.78rem; color: var(--silver); }
+.lib-detail-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.9rem; }
+.lib-detail-title { font-weight: 700; font-size: 0.9rem; }
+.lib-sub { margin-top: 1.1rem; }
+#lib-detail .summary-bar { margin-bottom: 0.4rem; }
+#chart-lib-category { max-height: 200px; }
