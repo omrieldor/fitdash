@@ -98,6 +98,27 @@ SEED_RULES = {
     # Income
     'SALARY': 'Salary', 'MASKORET': 'Salary', 'משכורת': 'Salary', 'PAYROLL': 'Salary',
     'BONUS': 'Bonus', 'בונוס': 'Bonus', 'DIVIDEND': 'Dividends', 'INTEREST': 'Interest',
+
+    # Hebrew merchant names — statements from Israeli issuers list businesses in
+    # Hebrew, so the Latin spellings above never match them.
+    'ארומה': 'Cafés', 'לנדוור': 'Cafés', 'קפה גרג': 'Cafés', 'קפה קפה': 'Cafés',
+    'מקדונלד': 'Restaurants', 'בורגר': 'Restaurants', 'פיצה': 'Restaurants',
+    'סושי': 'Restaurants', 'פלאפל': 'Restaurants', 'חומוס': 'Restaurants',
+    'וולט': 'Food Delivery', 'טיב טעם': 'Groceries', 'אושר עד': 'Groceries',
+    'יינות ביתן': 'Groceries', 'מגה': 'Groceries', 'סופרמרקט': 'Groceries',
+    'סונול': 'Fuel', 'דור אלון': 'Fuel', 'טן': 'Fuel',
+    'ניו פארם': 'Pharmacy', 'איקאה': 'Furniture & Appliances', 'הום סנטר': 'Home Maintenance',
+    'קסטרו': 'Clothing', 'פוקס': 'Clothing', 'גולף': 'Clothing', 'רנואר': 'Clothing',
+    'זארה': 'Clothing', 'קיי אס פי': 'Electronics', 'באג': 'Electronics',
+    'אגד': 'Public Transport', 'דן': 'Public Transport', 'רכבת ישראל': 'Public Transport',
+    'גט': 'Taxi & Rideshare', 'יאנגו': 'Taxi & Rideshare',
+    'חברת חשמל': 'Utilities', 'מי אביבים': 'Utilities', 'מקורות': 'Utilities',
+    'הוט': 'Internet & TV', 'יס': 'Internet & TV', 'סלקום': 'Internet & TV',
+    'פלאפון': 'Internet & TV', 'פרטנר': 'Internet & TV',
+    'סינמה סיטי': 'Events & Nightlife', 'יס פלאנט': 'Events & Nightlife',
+    'נטפליקס': 'Streaming & Subscriptions', 'ספוטיפיי': 'Streaming & Subscriptions',
+    'חדר כושר': 'Gym & Fitness', 'הולמס פלייס': 'Gym & Fitness',
+    'אל על': 'Flights', 'ישראייר': 'Flights', 'ארקיע': 'Flights',
 }
 
 
@@ -106,10 +127,17 @@ class ImportError_(Exception):
 
 
 def seed_default_rules(user):
-    """Create the keyword rules once per user (skipped if any already exist)."""
-    if CategorizationRule.query.filter_by(user_id=user.id).first():
-        return
+    """Add any built-in keyword rules the user is missing.
+
+    Additive rather than once-only, so a release that ships new merchants
+    reaches existing users too. Patterns the user already has are left alone —
+    their own corrections (priority 10) always win.
+    """
+    existing = {r.match_pattern for r in CategorizationRule.query.filter_by(user_id=user.id).all()}
+    added = False
     for pattern, category_name in SEED_RULES.items():
+        if pattern in existing:
+            continue
         category = get_category(user, category_name)
         if not category:
             continue
@@ -117,18 +145,132 @@ def seed_default_rules(user):
             user_id=user.id, category_id=category.id,
             match_pattern=pattern, match_type='contains', priority=0,
         ))
-    db.session.commit()
+        added = True
+    if added:
+        db.session.commit()
 
 
-def sniff_columns(file_bytes):
-    """Return headers + sample rows + a best-guess column mapping, without touching the DB."""
-    text = file_bytes.decode('utf-8-sig', errors='replace')
-    reader = csv.reader(io.StringIO(text))
-    rows = list(reader)
+HEADER_HINTS = (
+    'date', 'amount', 'debit', 'credit', 'charge', 'sum', 'description', 'merchant',
+    'payee', 'business', 'תאריך', 'סכום', 'חיוב', 'תיאור', 'בית עסק', 'עסקה',
+)
+
+
+def _is_xlsx(file_bytes):
+    return file_bytes[:2] == b'PK'          # zip container
+
+
+def _is_xls(file_bytes):
+    return file_bytes[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'   # OLE2 compound file
+
+
+def _cell_to_text(value):
+    if value is None:
+        return ''
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d')
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _read_excel_rows(file_bytes):
+    """Every cell of the first sheet as text, for .xlsx or .xls."""
+    if _is_xlsx(file_bytes):
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            raise ImportError_('Excel support not installed on the server')
+        wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+        sheet = wb[wb.sheetnames[0]]
+        return [[_cell_to_text(c) for c in row] for row in sheet.iter_rows(values_only=True)]
+
+    try:
+        import xlrd
+    except ImportError:
+        raise ImportError_('Old-style .xls support not installed on the server')
+    book = xlrd.open_workbook(file_contents=file_bytes)
+    sheet = book.sheet_by_index(0)
+    rows = []
+    for r in range(sheet.nrows):
+        row = []
+        for c in range(sheet.ncols):
+            cell = sheet.cell(r, c)
+            if cell.ctype == xlrd.XL_CELL_DATE:
+                row.append(xlrd.xldate_as_datetime(cell.value, book.datemode).strftime('%Y-%m-%d'))
+            else:
+                row.append(_cell_to_text(cell.value))
+        rows.append(row)
+    return rows
+
+
+def _find_header_row(rows):
+    """Card exports put a title, card number and blank lines above the real header.
+
+    Pick the first row containing a recognisable column name; fall back to the
+    first row that has at least two filled cells.
+    """
+    for idx, row in enumerate(rows[:30]):
+        joined = ' '.join(row).lower()
+        if any(hint in joined for hint in HEADER_HINTS):
+            if sum(1 for c in row if c.strip()) >= 2:
+                return idx
+    for idx, row in enumerate(rows):
+        if sum(1 for c in row if c.strip()) >= 2:
+            return idx
+    return 0
+
+
+def read_table(file_bytes, filename=None):
+    """Normalise CSV / XLSX / XLS into (headers, rows-as-dicts)."""
+    name = (filename or '').lower()
+    is_excel = _is_xlsx(file_bytes) or _is_xls(file_bytes) or name.endswith(('.xlsx', '.xls'))
+
+    if is_excel:
+        raw = _read_excel_rows(file_bytes)
+    else:
+        text = file_bytes.decode('utf-8-sig', errors='replace')
+        raw = [row for row in csv.reader(io.StringIO(text))]
+
+    raw = [r for r in raw if any(str(c).strip() for c in r)]   # drop blank lines
+    if not raw:
+        raise ImportError_('The file has no rows in it')
+
+    start = _find_header_row(raw)
+    headers = [str(h).strip() for h in raw[start]]
+    # De-duplicate blank/repeated header cells so dict keys stay unique
+    seen = {}
+    clean_headers = []
+    for i, h in enumerate(headers):
+        h = h or f'Column {i + 1}'
+        if h in seen:
+            seen[h] += 1
+            h = f'{h} ({seen[h]})'
+        else:
+            seen[h] = 1
+        clean_headers.append(h)
+
+    if len(clean_headers) < 2:
+        raise ImportError_("This doesn't look like a statement — expected a table "
+                           "with separate date, description and amount columns")
+
+    rows = []
+    for row in raw[start + 1:]:
+        padded = list(row) + [''] * (len(clean_headers) - len(row))
+        rows.append(dict(zip(clean_headers, padded)))
+
     if not rows:
+        raise ImportError_('Found column headers but no transactions below them')
+
+    return clean_headers, rows
+
+
+def sniff_columns(file_bytes, filename=None):
+    """Return headers + sample rows + a best-guess column mapping, without touching the DB."""
+    headers, rows = read_table(file_bytes, filename)
+    if not headers:
         raise ImportError_('Empty file')
-    headers = rows[0]
-    sample = rows[1:6]
+    sample = [[r.get(h, '') for h in headers] for r in rows[:5]]
 
     guess = {'date': None, 'amount': None, 'merchant': None}
     for h in headers:
@@ -152,6 +294,13 @@ def sniff_columns(file_bytes):
         guess['amount'] = headers[-1]
 
     return {'headers': headers, 'sample_rows': sample, 'guess': guess}
+
+
+def _coerce_date_text(value):
+    """Excel hands back real dates; CSV hands back strings."""
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d')
+    return str(value or '').strip()
 
 
 def _strip_locality(s):
@@ -245,9 +394,7 @@ def parse_and_import(file_bytes, account, column_mapping, user, filename=None):
     if len(file_bytes) > MAX_FILE_BYTES:
         raise ImportError_('File too large (max 2MB)')
 
-    text = file_bytes.decode('utf-8-sig', errors='replace')
-    reader = csv.DictReader(io.StringIO(text))
-    rows = list(reader)
+    _headers, rows = read_table(file_bytes, filename)
     if len(rows) > MAX_ROWS:
         raise ImportError_(f'Too many rows (max {MAX_ROWS})')
 
@@ -268,7 +415,7 @@ def parse_and_import(file_bytes, account, column_mapping, user, filename=None):
     resolved_date_format = date_format
 
     for row in rows:
-        txn_date, used_format = _parse_date(row.get(date_col, ''), resolved_date_format)
+        txn_date, used_format = _parse_date(_coerce_date_text(row.get(date_col, '')), resolved_date_format)
         if txn_date is None:
             continue
         if resolved_date_format is None:

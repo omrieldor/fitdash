@@ -292,7 +292,7 @@ def upload_sniff():
     if not file:
         return jsonify({'error': 'No file uploaded'}), 400
     try:
-        return jsonify(sniff_columns(file.read()))
+        return jsonify(sniff_columns(file.read(), filename=file.filename))
     except ImportError_ as e:
         return jsonify({'error': str(e)}), 400
 
