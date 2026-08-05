@@ -6,7 +6,7 @@ import re
 import unicodedata
 from datetime import datetime
 
-from models import (db, Category, Transaction, Import, CategorizationRule,
+from models import (db, Category, Transaction, Import, CategorizationRule, ArchivedDedup,
                     get_uncategorized_category, get_default_income_category, get_category)
 
 MAX_FILE_BYTES = 2 * 1024 * 1024  # 2MB
@@ -151,6 +151,13 @@ SEED_RULES = {
     'נטפליקס': 'Streaming & Subscriptions', 'ספוטיפיי': 'Streaming & Subscriptions',
     'חדר כושר': 'Gym & Fitness', 'הולמס פלייס': 'Gym & Fitness',
     'אל על': 'Flights', 'ישראייר': 'Flights', 'ארקיע': 'Flights',
+
+    # New categories: bars, snacks, gifts. Deliberately conservative patterns —
+    # short Hebrew fragments like בר match inside unrelated words (ברגר, חברה),
+    # and the correction-learning flow covers whatever these miss.
+    'פאב': 'Bars', 'IRISH PUB': 'Bars', 'BEER GARDEN': 'Bars', 'ביר גארדן': 'Bars',
+    'קיוסק': 'Snacks', 'פיצוציה': 'Snacks',
+    'מתנה': 'Gifts', 'מתנות': 'Gifts', 'GIFT': 'Gifts',
 }
 
 
@@ -193,8 +200,41 @@ COLUMN_ALIASES = {
     'merchant': ('שם בית העסק', 'שם בית עסק', 'בית עסק', 'שם בית העסק/תיאור',
              'פירוט נוסף', 'פרוט נוסף', 'תיאור', 'סוג תנועה',
              'description', 'merchant', 'payee', 'business', 'details'),
+    'card': ('4 ספרות אחרונות של כרטיס', '4 ספרות אחרונות', 'מספר כרטיס', 'כרטיס',
+             'card number', 'card'),
 }
 HEADER_HINTS = tuple(h for group in COLUMN_ALIASES.values() for h in group)
+
+# Card branding: multi-card exports group transactions under per-card headings
+# ("כרטיס מסתיים ב-1234", brand names); club cards appear by their Hebrew names.
+_CARD_ENDING = re.compile(r'(?:מסתיים ב[- ]?|ending in |•)\s*(\d{3,4})')
+_BARE_DIGITS = re.compile(r'^\d{4}$')
+CARD_BRANDS = (
+    ('חבר של קבע', 'חבר של קבע'), ('חבר טעמים', 'חבר טעמים'),
+    ('אמריקן אקספרס', 'Amex'), ('american express', 'Amex'), ('amex', 'Amex'),
+    ('מסטרקארד', 'Mastercard'), ('mastercard', 'Mastercard'),
+    ('ישראכרט', 'Isracard'), ('isracard', 'Isracard'),
+    ('דיינרס', 'Diners'), ('diners', 'Diners'),
+    ('ויזה', 'Visa'), ('visa', 'Visa'),
+)
+
+
+def normalize_card(text):
+    """Turn a card heading/cell into a friendly label, or None if it isn't one."""
+    t = _clean(text)
+    if not t:
+        return None
+    low = t.lower()
+    brand = next((label for key, label in CARD_BRANDS if key in low), None)
+    m = _CARD_ENDING.search(t)
+    digits = m.group(1) if m else (t if _BARE_DIGITS.match(t) else None)
+    if brand and digits:
+        return f'{brand} •{digits}'
+    if brand:
+        return brand
+    if digits:
+        return f'•{digits}'
+    return None
 
 # Summary and pending sections that sit inside the same sheet as real rows.
 SKIP_ROW_MARKERS = ('סה"כ', 'סך הכל', 'עסקאות שטרם נקלטו', 'total')
@@ -364,12 +404,30 @@ def read_table(file_bytes, filename=None):
         raise ImportError_("This doesn't look like a statement — expected a table "
                            "with separate date, description and amount columns")
 
+    # A multi-card export opens with a card heading in the preamble and switches
+    # cards mid-sheet with further heading rows. Track the one in force and stamp
+    # it on every data row as a reserved '_card' key.
+    current_card = None
+    for row in raw[:start]:
+        marker = normalize_card(' '.join(_clean(c) for c in row if _clean(c)))
+        if marker:
+            current_card = marker
+
     rows = []
     for row in raw[start + 1:]:
         if _is_noise_row(row):        # totals, "not yet captured" section headings
             continue
+        filled = [_clean(c) for c in row if _clean(c)]
+        if len(filled) <= 2:
+            # Too sparse to be a transaction — could be a card-section heading.
+            marker = normalize_card(' '.join(filled))
+            if marker:
+                current_card = marker
+                continue
         padded = [_clean(c) for c in row] + [''] * (len(clean_headers) - len(row))
-        rows.append(dict(zip(clean_headers, padded)))
+        record = dict(zip(clean_headers, padded))
+        record['_card'] = current_card
+        rows.append(record)
 
     if not rows:
         raise ImportError_('Found column headers but no transactions below them')
@@ -405,7 +463,7 @@ def sniff_columns(file_bytes, filename=None):
     # Prefer an exact alias match, then a substring match. Aliases are ordered
     # most-specific first, so 'סכום חיוב' (the amount actually charged) beats
     # 'סכום עסקה' (the original transaction amount) on Isracard exports.
-    guess = {'date': None, 'amount': None, 'merchant': None}
+    guess = {kind: None for kind in COLUMN_ALIASES}
     lowered = [(h, h.lower()) for h in headers]
     for kind, aliases in COLUMN_ALIASES.items():
         for alias in aliases:
@@ -587,9 +645,17 @@ def parse_and_import(file_bytes, account, column_mapping, user, filename=None):
         merchant_normalized = normalize_merchant(raw_merchant)
         dedup_hash = compute_dedup_hash(account.id, txn_date, signed, raw_merchant)
 
-        if Transaction.query.filter_by(account_id=account.id, dedup_hash=dedup_hash).first():
+        if (Transaction.query.filter_by(account_id=account.id, dedup_hash=dedup_hash).first()
+                or ArchivedDedup.query.filter_by(account_id=account.id, dedup_hash=dedup_hash).first()):
             duplicates += 1
             continue
+
+        # Card attribution: a per-row card column beats the sheet's section
+        # heading, which beats whatever the account name implies.
+        card_label = (normalize_card(resolve_field(row, column_mapping.get('card'), 'card'))
+                      or row.get('_card')
+                      or normalize_card(account.name)
+                      or account.name)
 
         # Money coming in shows up as a credit on the statement.
         txn_type = 'income' if signed < 0 else 'expense'
@@ -608,6 +674,7 @@ def parse_and_import(file_bytes, account, column_mapping, user, filename=None):
             merchant_normalized=merchant_normalized,
             category_source=source,
             dedup_hash=dedup_hash,
+            card_label=(card_label or '')[:60] or None,
         ))
         imported += 1
 

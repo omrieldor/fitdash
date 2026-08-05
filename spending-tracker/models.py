@@ -66,6 +66,7 @@ class Transaction(db.Model):
     merchant_normalized = db.Column(db.String(150), nullable=False, index=True)
     category_source = db.Column(db.String(20), default='default')  # rule, manual, default
     dedup_hash = db.Column(db.String(64), nullable=False, index=True)
+    card_label = db.Column(db.String(60))  # e.g. Visa •1234, חבר של קבע — auto-detected at import
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -104,6 +105,50 @@ class Import(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     transactions = db.relationship('Transaction', backref='import_batch', lazy=True)
+
+
+# --- Billing-cycle archive (the Library) ---
+
+class CycleSummary(db.Model):
+    """The permanent record of a completed billing cycle (8th → 7th).
+
+    Once a cycle is archived its Transaction rows are deleted by user choice —
+    this summary IS the surviving data, so it stores the rendered aggregates.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    cycle_start = db.Column(db.Date, nullable=False)
+    cycle_end = db.Column(db.Date, nullable=False)
+    income_total = db.Column(db.Float, default=0.0)
+    expense_total = db.Column(db.Float, default=0.0)
+    by_group = db.Column(db.Text)       # JSON: [{name, icon, color, total}]
+    top_merchants = db.Column(db.Text)  # JSON: [{merchant, total, count}]
+    by_income_source = db.Column(db.Text)  # JSON: [{name, icon, total}]
+    txn_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'cycle_start', name='uq_cycle_user_start'),)
+
+
+class ArchivedDedup(db.Model):
+    """Dedup hashes of deleted (archived) transactions.
+
+    Keeps re-uploads of old statements from re-importing rows whose detail was
+    erased at archive time — the hash alone reveals nothing about the purchase.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    dedup_hash = db.Column(db.String(64), nullable=False, index=True)
+
+    __table_args__ = (db.UniqueConstraint('account_id', 'dedup_hash', name='uq_arch_account_dedup'),)
+
+
+class ProcessedInbox(db.Model):
+    """Inbox files already ingested, so repeated git pulls never double-import."""
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), unique=True, nullable=False)
+    entry_count = db.Column(db.Integer, default=0)
+    processed_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 # --- Net worth ---
@@ -204,6 +249,10 @@ CATEGORY_TREE = [
     ]),
     ('Food', '🍽️', '#c9a84c', 'expense', [
         ('Groceries', '🛒'), ('Restaurants', '🍴'), ('Cafés', '☕'), ('Food Delivery', '🛵'),
+        ('Snacks', '🍫'), ('Bars', '🍺'),
+    ]),
+    ('Friends', '👥', '#b8917a', 'expense', [
+        ('Gifts', '🎁'), ('Money Lent', '🤝'), ('Bill Split', '🧾'),
     ]),
     ('Car', '🚗', '#1478ff', 'expense', [
         ('Fuel', '⛽'), ('Car Insurance', '🛡️'), ('Car Maintenance', '🔧'),
