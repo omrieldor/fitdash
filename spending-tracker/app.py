@@ -224,9 +224,15 @@ def _prev_cycle_start(cycle_start):
 def _visible_window(today=None):
     """(window_start, today). Homepage shows this; older data lives in the Library.
 
-    The boundary is the most recent 7th ≤ today; the window opens on the 8th one
-    month before it. On Sep 7 the window becomes Aug 8 → today, and the Aug 8–Sep 7
-    statement uploaded on Sep 8 stays visible until Oct 7.
+    The boundary is the most recent 7th ≤ today; the window opens on the 8th
+    TWO months before it, so the current cycle and the one before it are both
+    visible. On Aug 6 the boundary is Jul 7 (Aug 6 is before this month's 7th),
+    so the window opens May 8 — May 8–Jun 7 and Jun 8–Jul 7 in full, plus
+    Jul 8–today in progress.
+
+    Everything on the homepage derives from this one function -- the list, SPENT,
+    income, the donut and top merchants -- so they widen together and cannot
+    disagree about which range they are describing.
     """
     today = today or date.today()
     if today.day >= 7:
@@ -234,7 +240,7 @@ def _visible_window(today=None):
     else:
         y, m = _shift_month(today.year, today.month, -1)
         boundary = date(y, m, 7)
-    y, m = _shift_month(boundary.year, boundary.month, -1)
+    y, m = _shift_month(boundary.year, boundary.month, -2)
     return date(y, m, 8), today
 
 
@@ -441,8 +447,10 @@ def api_transactions():
 def edit_transaction(transaction_id):
     from spending_import import apply_correction, ImportError_
     txn = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
-    if txn.date < _visible_window()[0]:
-        return jsonify({'error': "This month is archived and can't be edited"}), 403
+    # Archived cycles used to be uneditable because their summary was immutable
+    # while the underlying rows had been deleted -- an edit would have desynced
+    # the two permanently. Summaries are now recomputed from the live rows on
+    # every /api/summary, so an edit to an older cycle simply propagates.
     data = request.get_json(force=True)
     if 'category_id' in data:
         try:
@@ -459,8 +467,8 @@ def edit_transaction(transaction_id):
 @login_required
 def delete_transaction(transaction_id):
     txn = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
-    if txn.date < _visible_window()[0]:
-        return jsonify({'error': "This month is archived and can't be edited"}), 403
+    # See edit_transaction: summaries recompute from live rows, so deleting an
+    # older row no longer strands a stale total in the Library.
     db.session.delete(txn)
     db.session.commit()
     return jsonify({'status': 'ok'})
@@ -538,94 +546,68 @@ def _aggregate_window(user_id, start, end):
     }
 
 
-def _merge_summary(stored, fresh):
-    """Fold late-arriving rows into an existing cycle summary.
-
-    Happens when an old statement is re-uploaded after its cycle was archived
-    and contains rows that weren't in the original import.
-    """
-    stored['income'] = round(stored.get('income', 0) + fresh['income'], 2)
-    stored['expense'] = round(stored.get('expense', 0) + fresh['expense'], 2)
-    stored['txn_count'] = stored.get('txn_count', 0) + fresh['txn_count']
-
-    def merge_named(key, name_field, extra=()):
-        combined = {item[name_field]: dict(item) for item in stored.get(key, [])}
-        for item in fresh[key]:
-            if item[name_field] in combined:
-                combined[item[name_field]]['total'] = round(
-                    combined[item[name_field]]['total'] + item['total'], 2)
-                for f in extra:
-                    combined[item[name_field]][f] = combined[item[name_field]].get(f, 0) + item.get(f, 0)
-            else:
-                combined[item[name_field]] = dict(item)
-        return sorted(combined.values(), key=lambda x: x['total'], reverse=True)
-
-    # Group children aren't merged in detail — collapse to totals-only entries.
-    stored['by_group'] = merge_named('by_group', 'name')
-    stored['by_income_source'] = merge_named('by_income_source', 'name')
-    stored['top_merchants'] = merge_named('top_merchants', 'merchant', extra=('count',))[:10]
-    return stored
-
-
 def _archive_completed_cycles(user):
-    """Move everything older than the visible window into the Library.
+    """Summarise every cycle older than the visible window into the Library.
 
-    Per the user's explicit choice, transaction detail is DELETED after the
-    summary is stored; only (account_id, dedup_hash) survives so re-uploading
-    an old statement can't re-import the erased rows.
+    Transaction detail is RETAINED. This previously deleted the rows once a
+    summary existed, which made the Library the only surviving record of an old
+    cycle and put the detail permanently out of reach.
+
+    Three things follow from keeping the rows, and each shapes the code below:
+
+    - Termination can no longer come from the delete. The old loop re-queried
+      "oldest row before the window" every pass and stopped only because it had
+      just erased those rows; without the delete that spins forever. The loop
+      is therefore driven by cycle_start, which strictly increases one cycle per
+      iteration against a fixed bound, so it always terminates.
+    - Totals must be recomputed, not accumulated. `_merge_summary` ADDED to the
+      stored figures, which was correct exactly once -- when the rows then
+      disappeared. With rows retained this runs on every /api/summary and would
+      inflate without bound, so each pass overwrites and is idempotent.
+    - Cycles whose detail was already deleted must be left alone. Recomputing
+      those from zero surviving rows would silently zero a real historical
+      total, so a cycle with no rows is skipped and its stored summary kept.
     """
     window_start, _today = _visible_window()
     archived_any = False
 
-    while True:
-        oldest = (Transaction.query
-                  .filter(Transaction.user_id == user.id, Transaction.date < window_start)
-                  .order_by(Transaction.date).first())
-        if not oldest:
-            break
+    oldest = (Transaction.query.filter(Transaction.user_id == user.id)
+              .order_by(Transaction.date).first())
+    if not oldest:
+        return False
 
-        cycle_start = _cycle_start_for(oldest.date)
+    cycle_start = _cycle_start_for(oldest.date)
+    while cycle_start < window_start:
         cycle_end = _cycle_end(cycle_start)
+
+        has_rows = (db.session.query(Transaction.id)
+                    .filter(Transaction.user_id == user.id,
+                            Transaction.date >= cycle_start,
+                            Transaction.date <= cycle_end).first() is not None)
+        if not has_rows:
+            cycle_start = cycle_end + timedelta(days=1)
+            continue
+
         agg = _aggregate_window(user.id, cycle_start, cycle_end)
+        summary = CycleSummary.query.filter_by(user_id=user.id,
+                                               cycle_start=cycle_start).first()
+        if summary is None:
+            summary = CycleSummary(user_id=user.id, cycle_start=cycle_start,
+                                   cycle_end=cycle_end)
+            db.session.add(summary)
 
-        summary = CycleSummary.query.filter_by(user_id=user.id, cycle_start=cycle_start).first()
-        if summary:
-            merged = _merge_summary({
-                'income': summary.income_total, 'expense': summary.expense_total,
-                'txn_count': summary.txn_count,
-                'by_group': json.loads(summary.by_group or '[]'),
-                'by_income_source': json.loads(summary.by_income_source or '[]'),
-                'top_merchants': json.loads(summary.top_merchants or '[]'),
-            }, agg)
-            summary.income_total = merged['income']
-            summary.expense_total = merged['expense']
-            summary.txn_count = merged['txn_count']
-            summary.by_group = json.dumps(merged['by_group'])
-            summary.by_income_source = json.dumps(merged['by_income_source'])
-            summary.top_merchants = json.dumps(merged['top_merchants'])
-        else:
-            db.session.add(CycleSummary(
-                user_id=user.id, cycle_start=cycle_start, cycle_end=cycle_end,
-                income_total=agg['income'], expense_total=agg['expense'],
-                txn_count=agg['txn_count'],
-                by_group=json.dumps(agg['by_group']),
-                by_income_source=json.dumps(agg['by_income_source']),
-                top_merchants=json.dumps(agg['top_merchants']),
-            ))
+        summary.cycle_end = cycle_end
+        summary.income_total = agg['income']
+        summary.expense_total = agg['expense']
+        summary.txn_count = agg['txn_count']
+        summary.by_group = json.dumps(agg['by_group'])
+        summary.by_income_source = json.dumps(agg['by_income_source'])
+        summary.top_merchants = json.dumps(agg['top_merchants'])
 
-        doomed = (Transaction.query
-                  .filter(Transaction.user_id == user.id,
-                          Transaction.date >= cycle_start, Transaction.date <= cycle_end)
-                  .all())
-        for txn in doomed:
-            if not ArchivedDedup.query.filter_by(account_id=txn.account_id,
-                                                 dedup_hash=txn.dedup_hash).first():
-                db.session.add(ArchivedDedup(account_id=txn.account_id,
-                                             dedup_hash=txn.dedup_hash))
-            db.session.delete(txn)
-
-        db.session.commit()
         archived_any = True
+        cycle_start = cycle_end + timedelta(days=1)
+
+    db.session.commit()
 
     return archived_any
 
@@ -651,8 +633,13 @@ def api_summary():
 
     agg = _aggregate_window(current_user.id, window_start, today)
 
-    # Compare against the most recently archived cycle.
-    prev = (CycleSummary.query.filter_by(user_id=current_user.id)
+    # Compare against the most recent cycle that ended BEFORE the visible window.
+    # The window now spans two cycles, so the newest summary generally falls
+    # inside it -- using that as the baseline would compare the window against a
+    # range it already contains and report a meaningless percentage.
+    prev = (CycleSummary.query
+            .filter(CycleSummary.user_id == current_user.id,
+                    CycleSummary.cycle_end < window_start)
             .order_by(CycleSummary.cycle_start.desc()).first())
     expense_last = prev.expense_total if prev else 0.0
     pct_change = (round((agg['expense'] - expense_last) / expense_last * 100, 1)
@@ -727,73 +714,6 @@ def api_library_detail(summary_id):
     out['by_income_source'] = json.loads(s.by_income_source or '[]')
     out['top_merchants'] = json.loads(s.top_merchants or '[]')
     return jsonify(out)
-
-
-# --- TEMPORARY diagnostic (remove once the missing-transactions bug is fixed) ---
-#
-# Read-only. Deliberately does NOT call _archive_completed_cycles(), so opening
-# this page can never destroy the evidence it is meant to capture. Exists to
-# answer one question with real data: why does a transaction appear in the list
-# but not in the SPENT total? The list filters on date only, while SPENT also
-# requires txn_type == 'expense' exactly, and the donut additionally INNER JOINs
-# the category — so a row can pass one filter and fail another.
-
-@app.route('/debug/diag')
-@login_required
-def debug_diag():
-    from collections import Counter
-    window_start, today = _visible_window()
-    rows = (Transaction.query.filter(Transaction.user_id == current_user.id)
-            .order_by(Transaction.date.desc()).all())
-
-    out = []
-    for t in rows:
-        in_list = t.date >= window_start
-        in_agg = (t.txn_type == 'expense' and window_start <= t.date <= today)
-        out.append({
-            'id': t.id,
-            'date': str(t.date),
-            'date_pytype': type(t.date).__name__,
-            'txn_type_repr': repr(t.txn_type),
-            'amount': t.amount,
-            'category_id': t.category_id,
-            'category_name': t.category.name if t.category else None,
-            'category_kind': t.category.kind if t.category else None,
-            'category_source': t.category_source,
-            'merchant': t.merchant_normalized,
-            'in_list_filter': in_list,
-            'in_expense_aggregate': in_agg,
-            'LIST_BUT_NOT_SPENT': in_list and not in_agg,
-        })
-
-    agg = _aggregate_window(current_user.id, window_start, today)
-
-    return jsonify({
-        'server_now_local': datetime.now().isoformat(),
-        'date_today': date.today().isoformat(),
-        'tz_name': time.tzname,
-        'tz_env': os.environ.get('TZ'),
-        'window_start': window_start.isoformat(),
-        'total_rows_all_time': len(rows),
-        'rows_in_list_window': sum(1 for r in out if r['in_list_filter']),
-        'rows_in_expense_agg': sum(1 for r in out if r['in_expense_aggregate']),
-        'rows_LIST_BUT_NOT_SPENT': sum(1 for r in out if r['LIST_BUT_NOT_SPENT']),
-        'txn_type_histogram': dict(Counter(repr(t.txn_type) for t in rows)),
-        'null_category_in_window': sum(1 for t in rows
-                                       if t.date >= window_start and t.category_id is None),
-        'aggregate_expense': agg['expense'],
-        'aggregate_income': agg['income'],
-        'donut_group_total': round(sum(g['total'] for g in agg['by_group']), 2),
-        'cycle_summaries': [{'cycle_start': s.cycle_start.isoformat(),
-                             'cycle_end': s.cycle_end.isoformat(),
-                             'expense_total': s.expense_total,
-                             'income_total': s.income_total,
-                             'txn_count': s.txn_count}
-                            for s in (CycleSummary.query
-                                      .filter_by(user_id=current_user.id)
-                                      .order_by(CycleSummary.cycle_start).all())],
-        'rows': out,
-    })
 
 
 # --- Portfolio ---

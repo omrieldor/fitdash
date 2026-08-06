@@ -110,10 +110,16 @@ class Import(db.Model):
 # --- Billing-cycle archive (the Library) ---
 
 class CycleSummary(db.Model):
-    """The permanent record of a completed billing cycle (8th → 7th).
+    """A completed billing cycle (8th → 7th), rendered for the Library.
 
-    Once a cycle is archived its Transaction rows are deleted by user choice —
-    this summary IS the surviving data, so it stores the rendered aggregates.
+    Transaction rows are RETAINED when a cycle is archived, so this is a cached
+    view of them rather than the only surviving copy -- it is recomputed from
+    the live rows on every /api/summary, which is what lets an edit to an older
+    transaction flow through into its cycle's totals.
+
+    Summaries written before that change may cover cycles whose detail was
+    already deleted; those are deliberately left untouched, since recomputing
+    them from zero surviving rows would replace a real total with 0.
     """
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -252,7 +258,8 @@ CATEGORY_TREE = [
         ('Snacks', '🍫'), ('Bars', '🍺'),
     ]),
     ('Friends', '👥', '#b8917a', 'expense', [
-        ('Gifts', '🎁'), ('Money Lent', '🤝'), ('Bill Split', '🧾'),
+        ('Gifts', '🎁'), ('Money Lent', '🤝'), ('Money Owed', '💸'),
+        ('Bill Split', '🧾'),
     ]),
     ('Car', '🚗', '#1478ff', 'expense', [
         ('Fuel', '⛽'), ('Car Insurance', '🛡️'), ('Car Maintenance', '🔧'),

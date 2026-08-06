@@ -39,10 +39,13 @@ so far has verified its diff stays inside its own directory — keep it that way
 
 ## Domain facts that keep biting
 
-- **Billing cycle is the 8th → 7th**, not calendar months. The homepage shows
-  the window opening at the last completed cycle; older cycles archive into
-  read-only `CycleSummary` rows and their transactions are **deleted by
-  design** (owner's choice) — `ArchivedDedup` keeps re-uploads deduped.
+- **Billing cycle is the 8th → 7th**, not calendar months. The homepage window
+  spans the **two** most recent cycles; older ones archive into `CycleSummary`
+  rows for the Library. Transaction detail is **retained** — summaries are
+  recomputed from the live rows on every `/api/summary`, so they are a cache,
+  not the only copy. (This is a reversal: archiving used to delete the rows.
+  Summaries predating the change may cover cycles whose detail is genuinely
+  gone, and the archiver skips those rather than recomputing them to zero.)
 - **Hebrew statements** embed bidi control marks inside date/amount cells and
   use two-digit years (`02.07.25`). `_clean()` and the `DATE_FORMATS` ordering
   in `spending_import.py` exist because of real zero-row import bugs — don't
