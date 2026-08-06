@@ -74,6 +74,10 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
+# Python buffers stdout when it is not a terminal, so boot-time print() output
+# -- including the inbox ingest count -- sat in a buffer instead of reaching the
+# journal. Unbuffered makes those diagnostics actually visible in journalctl.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=${VENV_DIR}/bin/gunicorn -w 2 -b 127.0.0.1:${PORT} app:app
 Restart=always
 RestartSec=3

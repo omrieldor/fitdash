@@ -108,7 +108,13 @@ gh api repos/<owner>/fitdash/hooks/<id>/deliveries \
   new one on the server, write it to `.env`, restart, then `PATCH` the hook's
   `config[secret]` to the same value.
 - **502** — the app was down when GitHub called (see the boot-crash note below).
-- **200 but the code is old** — the pull ran and the restart didn't.
+- **200 but the code is old** — the webhook was accepted but the pull did not
+  advance the checkout. The usual cause is a **locally modified tracked file**:
+  `git pull` refuses to clobber it, aborts, and `/deploy` still answers 200. Any
+  file edited directly on the server does this — `git status --short` on the
+  server names it. If the local copy is already identical to the committed one,
+  `git checkout -- <file>` clears the block. It can also simply be that the pull
+  ran and the restart didn't.
 
 ```bash
 # 2. Is the checked-out code actually current?
