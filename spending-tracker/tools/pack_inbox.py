@@ -68,5 +68,10 @@ def pack(payload: dict) -> str:
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         sys.exit('usage: python tools/pack_inbox.py entries.json')
-    payload = json.load(open(sys.argv[1]))
+    # Read as UTF-8 explicitly. Merchant names here are usually Hebrew, and
+    # open() without an encoding uses the platform default -- cp1255 on a
+    # Windows box -- which raises UnicodeDecodeError on the very payloads this
+    # tool exists to pack, including the Hebrew example in the docstring above.
+    with open(sys.argv[1], encoding='utf-8') as f:
+        payload = json.load(f)
     print('wrote', pack(payload))
