@@ -23,9 +23,9 @@
     <h2>Create account</h2>
     <form method="POST" action="/register">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="text" name="username" placeholder="Username" required>
-      <input type="email" name="email" placeholder="Email" required>
-      <input type="password" name="password" placeholder="Password" required minlength="4">
+      <input type="text" name="username" placeholder="Username" required autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username">
+      <input type="email" name="email" placeholder="Email" required autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="email">
+      <input type="password" name="password" placeholder="Password (8+ chars, 1 number)" required minlength="8" autocomplete="new-password">
       <button type="submit" class="btn-primary">Sign Up</button>
     </form>
     <p class="auth-switch">Already have an account? <a href="/login">Log in</a></p>
@@ -34,8 +34,8 @@
     <h2>Welcome back</h2>
     <form method="POST" action="/login">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="text" name="username" placeholder="Username" required>
-      <input type="password" name="password" placeholder="Password" required>
+      <input type="text" name="username" placeholder="Username or email" required autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username">
+      <input type="password" name="password" placeholder="Password" required autocomplete="current-password">
       <button type="submit" class="btn-primary">Log In</button>
     </form>
     <p class="auth-switch">New here? <a href="/register">Create an account</a></p>
