@@ -224,9 +224,15 @@ def _prev_cycle_start(cycle_start):
 def _visible_window(today=None):
     """(window_start, today). Homepage shows this; older data lives in the Library.
 
-    The boundary is the most recent 7th ≤ today; the window opens on the 8th one
-    month before it. On Sep 7 the window becomes Aug 8 → today, and the Aug 8–Sep 7
-    statement uploaded on Sep 8 stays visible until Oct 7.
+    The boundary is the most recent 7th ≤ today; the window opens on the 8th
+    TWO months before it, so the current cycle and the one before it are both
+    visible. On Aug 6 the boundary is Jul 7 (Aug 6 is before this month's 7th),
+    so the window opens May 8 — May 8–Jun 7 and Jun 8–Jul 7 in full, plus
+    Jul 8–today in progress.
+
+    Everything on the homepage derives from this one function -- the list, SPENT,
+    income, the donut and top merchants -- so they widen together and cannot
+    disagree about which range they are describing.
     """
     today = today or date.today()
     if today.day >= 7:
@@ -234,7 +240,7 @@ def _visible_window(today=None):
     else:
         y, m = _shift_month(today.year, today.month, -1)
         boundary = date(y, m, 7)
-    y, m = _shift_month(boundary.year, boundary.month, -1)
+    y, m = _shift_month(boundary.year, boundary.month, -2)
     return date(y, m, 8), today
 
 
@@ -627,8 +633,13 @@ def api_summary():
 
     agg = _aggregate_window(current_user.id, window_start, today)
 
-    # Compare against the most recently archived cycle.
-    prev = (CycleSummary.query.filter_by(user_id=current_user.id)
+    # Compare against the most recent cycle that ended BEFORE the visible window.
+    # The window now spans two cycles, so the newest summary generally falls
+    # inside it -- using that as the baseline would compare the window against a
+    # range it already contains and report a meaningless percentage.
+    prev = (CycleSummary.query
+            .filter(CycleSummary.user_id == current_user.id,
+                    CycleSummary.cycle_end < window_start)
             .order_by(CycleSummary.cycle_start.desc()).first())
     expense_last = prev.expense_total if prev else 0.0
     pct_change = (round((agg['expense'] - expense_last) / expense_last * 100, 1)
