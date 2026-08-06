@@ -11,10 +11,14 @@ from sqlalchemy.orm import joinedload
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, CSRFError
+from werkzeug.middleware.proxy_fix import ProxyFix
 from models import db, User, Workout, WorkoutExercise, Weight, Sleep, Nutrition, WeeklyPlan
 
 app = Flask(__name__)
+# nginx proxies to gunicorn on 127.0.0.1 — trust one hop of X-Forwarded-For/-Proto
+# so request.remote_addr is the real client IP (login rate limiting depends on it)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 _fallback_key = os.environ.get('SECRET_KEY')
 if not _fallback_key:
     import warnings
@@ -194,10 +198,10 @@ def register():
         if not re.search(r'\d', password):
             flash('Password must contain at least one number.')
             return redirect(url_for('register'))
-        if User.query.filter_by(username=username).first():
+        if User.query.filter(func.lower(User.username) == username.lower()).first():
             flash('Username already taken.')
             return redirect(url_for('register'))
-        if User.query.filter_by(email=email).first():
+        if User.query.filter(func.lower(User.email) == email.lower()).first():
             flash('Email already registered.')
             return redirect(url_for('register'))
         user = User(
@@ -220,9 +224,11 @@ def login():
         if _is_rate_limited(_login_attempts, ip, max_attempts=5, window=30):
             flash('Too many login attempts. Please wait 30 seconds.')
             return redirect(url_for('login'))
-        username = request.form['username'].strip()
+        identifier = request.form['username'].strip()
         password = request.form['password']
-        user = User.query.filter_by(username=username).first()
+        user = User.query.filter(func.lower(User.username) == identifier.lower()).first()
+        if not user:
+            user = User.query.filter(func.lower(User.email) == identifier.lower()).first()
         if not user or not check_password_hash(user.password_hash, password):
             _record_attempt(_login_attempts, ip)
             flash('Invalid username or password.')
@@ -231,6 +237,15 @@ def login():
         login_user(user)
         return redirect(url_for('index'))
     return render_template('login.html', mode='login')
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    # Stale PWA pages submit expired tokens — re-show the form instead of a raw 400
+    if request.path in ('/login', '/register'):
+        flash('Your session expired — please try again.')
+        return redirect(request.path)
+    return jsonify({'status': 'Session expired — refresh the page and try again'}), 400
 
 
 @app.route('/logout', methods=['POST'])
