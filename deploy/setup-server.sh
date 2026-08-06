@@ -15,6 +15,13 @@ echo ""
 echo "=== Path to Eldorado — Server Setup ==="
 echo ""
 
+# --- 0. Clock ---
+# Both apps call date.today(), which is naive and reads the system clock. On a
+# UTC host that rolls over three hours early, so anything logged after 21:00
+# local lands on tomorrow's date -- and SpendTrack's reminder, which uses an
+# explicit Asia/Jerusalem timezone, would disagree with the rest of the app.
+sudo timedatectl set-timezone Asia/Jerusalem
+
 # --- 1. System packages ---
 echo "[1/6] Installing system packages..."
 sudo apt update -y

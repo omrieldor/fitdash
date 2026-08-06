@@ -111,13 +111,19 @@ def _import_entries(user, payload):
 
 def ingest_inbox():
     """Scan inbox/*.enc and import anything new. Safe to call on every boot."""
+    # Say why on every early return. An unset INBOX_PRIVATE_KEY used to skip
+    # ingest silently, which is how the key stayed missing from the server for
+    # months without anyone noticing the feature had never once run.
     private_key = _private_key()
     if private_key is None:
+        print('inbox: INBOX_PRIVATE_KEY not set - ingest disabled')
         return 0
     if not os.path.isdir(INBOX_DIR):
+        print(f'inbox: no such directory {INBOX_DIR} - ingest skipped')
         return 0
     user = User.query.first()
     if user is None:
+        print('inbox: no user registered yet - ingest skipped')
         return 0
 
     total = 0
@@ -126,14 +132,41 @@ def ingest_inbox():
             continue
         if ProcessedInbox.query.filter_by(filename=name).first():
             continue
+
+        # Claim the file BEFORE importing it. gunicorn runs two workers and both
+        # execute this at import, so the check above is not exclusive: without a
+        # claim, both could pass it, both import the entries, and the loser then
+        # hits the unique constraint on filename -- after its transactions were
+        # already written. Committing the claim first makes that same constraint
+        # the arbiter, and the loser rolls back having written nothing.
+        claim = ProcessedInbox(filename=name, entry_count=0)
+        db.session.add(claim)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            continue
+
         try:
             payload = _decrypt(open(os.path.join(INBOX_DIR, name)).read(), private_key)
             count = _import_entries(user, payload)
+            claim.entry_count = count
+            db.session.commit()
         except Exception as e:
+            # Roll back before touching the session again: a failed flush leaves
+            # it unusable, so without this one bad file breaks every later one.
+            db.session.rollback()
+            # Release the claim so a transient failure is retried on the next
+            # boot rather than marking the file permanently done at zero
+            # entries. A genuinely corrupt file just fails again, harmlessly.
+            try:
+                db.session.delete(claim)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
             print(f'inbox: skipping {name}: {e}')
             continue
-        db.session.add(ProcessedInbox(filename=name, entry_count=count))
-        db.session.commit()
+
         total += count
         print(f'inbox: imported {count} entries from {name}')
     return total
