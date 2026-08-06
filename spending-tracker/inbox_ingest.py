@@ -68,7 +68,13 @@ def _import_entries(user, payload):
     for entry in payload.get('entries', []):
         txn_date = datetime.strptime(entry['date'], '%Y-%m-%d').date()
         amount = abs(float(entry['amount']))
-        txn_type = entry.get('type', 'expense')
+        # Normalise rather than trust: this value is authored by the assistant
+        # reading a photo, and every aggregate keys off `txn_type == 'expense'`
+        # as an exact string. Anything unexpected ('Expense', None, 'purchase')
+        # would still list and render, but silently vanish from SPENT and the
+        # donut -- a discrepancy with no visible cause.
+        _raw_type = str(entry.get('type') or 'expense').strip().lower()
+        txn_type = 'income' if _raw_type in ('income', 'credit', 'in', 'refund') else 'expense'
         merchant_raw = str(entry.get('merchant', '')).strip() or 'Photo entry'
         merchant_normalized = normalize_merchant(merchant_raw)
 
