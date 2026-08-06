@@ -62,7 +62,12 @@ with app.app_context():
         present = {c['name'] for c in inspector.get_columns(table)}
         for name, ddl in columns.items():
             if name not in present:
-                db.session.execute(db.text(f'ALTER TABLE {table} ADD COLUMN {name} {ddl}'))
+                # Quote both identifiers: 'transaction' is a reserved SQL word, so
+                # the unquoted form emitted 'ALTER TABLE transaction ...' and raised
+                # OperationalError, crashing every worker at boot the moment one of
+                # these columns was genuinely absent.
+                db.session.execute(
+                    db.text(f'ALTER TABLE "{table}" ADD COLUMN "{name}" {ddl}'))
 
     add_missing_columns('category', {
         'parent_id': 'INTEGER',
