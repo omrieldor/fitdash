@@ -25,6 +25,12 @@ if not _fallback_key:
     warnings.warn('SECRET_KEY not set — using insecure dev-only default. Set SECRET_KEY env var in production.')
     _fallback_key = 'eldorado-dev-insecure-key-change-me'
 app.secret_key = _fallback_key
+# Distinct cookie names: SpendTrack shares this host, and cookies are scoped by
+# host and NOT by port (RFC 6265). With both apps issuing a cookie called
+# 'session', each overwrote the other's and the mismatched SECRET_KEY then failed
+# verification — silently logging you out of whichever app you hadn't just used.
+app.config['SESSION_COOKIE_NAME'] = 'eldorado_session'
+app.config['REMEMBER_COOKIE_NAME'] = 'eldorado_remember'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///dashboard.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
