@@ -232,11 +232,24 @@ canvas { max-height: 220px; }
 .collapsible-header + div:not(.hidden) { margin-top: 0.9rem; }
 .empty-hint { color: var(--dim); font-size: 0.82rem; text-align: center; padding: 0.7rem 0; }
 
+/* Logged portfolio entries, collapsed by default -- this is a correction tool,
+   not something to look at every visit. */
+.pf-logs { margin-top: 0.9rem; }
+.pf-logs summary { font-size: 0.78rem; color: var(--dim); cursor: pointer; padding: 0.3rem 0; }
+.pf-log-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.45rem 0.7rem; margin-top: 0.4rem; border-radius: 10px; box-shadow: var(--neo-in); font-size: 0.8rem; }
+.pf-log-del { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 0.9rem; padding: 0 0.2rem; flex-shrink: 0; }
+.pf-log-del:hover { color: #d46a6a; }
+
 /* ── Modal ── */
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1.2rem; overflow-y: auto; }
 .modal { background: var(--surface); border-radius: var(--r); padding: 1.4rem; width: 100%; max-width: 420px; box-shadow: var(--neo-lg); display: flex; flex-direction: column; gap: 0.85rem; max-height: 90vh; overflow-y: auto; }
 .modal-hint { font-size: 0.78rem; color: var(--dim); margin-top: -0.4rem; }
+/* Says the form was pre-filled from the last log. Distinct from the plain hint
+   above it, because acting on stale quantities is the mistake worth warning about. */
+.prefill-hint { color: var(--silver); margin-top: 0.2rem; }
+.btn-linkish { background: none; border: none; color: var(--dim); cursor: pointer;
+  font-size: 0.75rem; padding: 0.3rem 0; margin-top: 0.2rem; text-decoration: underline; }
 .modal label { font-size: 0.76rem; color: var(--silver); display: flex; flex-direction: column; gap: 0.35rem; }
 .modal-actions { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 0.3rem; }
 

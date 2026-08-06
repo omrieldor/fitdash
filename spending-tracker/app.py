@@ -794,7 +794,11 @@ def api_portfolio():
         if latest:
             current_value = round(snapshot_values[latest.id], 2)
 
-    history = [{'date': s.as_of_date.isoformat(), 'value': round(snapshot_values[s.id], 2)}
+    # `id` rides along so the UI can offer a delete against a specific entry --
+    # a mistyped log is otherwise stuck in the chart forever, and a zero-value
+    # one distorts every return computed across it.
+    history = [{'id': s.id, 'date': s.as_of_date.isoformat(),
+                'value': round(snapshot_values[s.id], 2)}
                for s in snapshots]
 
     # Performance vs benchmark, chain-linked Modified Dietz so deposits don't
@@ -901,6 +905,12 @@ def list_snapshots():
 @login_required
 def delete_snapshot(snapshot_id):
     snap = PortfolioSnapshot.query.filter_by(id=snapshot_id, user_id=current_user.id).first_or_404()
+    # Delete the holdings too. There is no cascade on the relationship, so
+    # deleting only the snapshot leaves its Holding rows behind pointing at an
+    # id that no longer exists -- invisible in the UI, but they accumulate and
+    # any future query that walks holdings without joining a snapshot picks up
+    # rows from portfolios the user already deleted.
+    Holding.query.filter_by(snapshot_id=snap.id).delete()
     db.session.delete(snap)
     db.session.commit()
     return jsonify({'status': 'ok'})
