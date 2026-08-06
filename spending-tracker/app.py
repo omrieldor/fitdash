@@ -88,7 +88,7 @@ with app.app_context():
     # so this is what makes "post a photo in chat" end up in the app).
     try:
         from inbox_ingest import ingest_inbox
-        ingest_inbox()
+        print(f'inbox ingest: {ingest_inbox()} entries')
     except Exception as _inbox_err:      # never let inbox trouble block startup
         print(f'inbox ingest skipped: {_inbox_err}')
 
