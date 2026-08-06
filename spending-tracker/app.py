@@ -25,6 +25,12 @@ if not _fallback_key:
     warnings.warn('SECRET_KEY not set — using insecure dev-only default. Set SECRET_KEY env var in production.')
     _fallback_key = 'spendtrack-dev-insecure-key-change-me'
 app.secret_key = _fallback_key
+# Distinct cookie names: the fitness app shares this host, and cookies are scoped
+# by host and NOT by port (RFC 6265). With both apps issuing a cookie called
+# 'session', each overwrote the other's and the mismatched SECRET_KEY then failed
+# verification — silently logging you out of whichever app you hadn't just used.
+app.config['SESSION_COOKIE_NAME'] = 'spendtrack_session'
+app.config['REMEMBER_COOKIE_NAME'] = 'spendtrack_remember'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///spending.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024  # 3MB upload cap
@@ -716,6 +722,73 @@ def api_library_detail(summary_id):
     out['by_income_source'] = json.loads(s.by_income_source or '[]')
     out['top_merchants'] = json.loads(s.top_merchants or '[]')
     return jsonify(out)
+
+
+# --- TEMPORARY diagnostic (remove once the missing-transactions bug is fixed) ---
+#
+# Read-only. Deliberately does NOT call _archive_completed_cycles(), so opening
+# this page can never destroy the evidence it is meant to capture. Exists to
+# answer one question with real data: why does a transaction appear in the list
+# but not in the SPENT total? The list filters on date only, while SPENT also
+# requires txn_type == 'expense' exactly, and the donut additionally INNER JOINs
+# the category — so a row can pass one filter and fail another.
+
+@app.route('/debug/diag')
+@login_required
+def debug_diag():
+    from collections import Counter
+    window_start, today = _visible_window()
+    rows = (Transaction.query.filter(Transaction.user_id == current_user.id)
+            .order_by(Transaction.date.desc()).all())
+
+    out = []
+    for t in rows:
+        in_list = t.date >= window_start
+        in_agg = (t.txn_type == 'expense' and window_start <= t.date <= today)
+        out.append({
+            'id': t.id,
+            'date': str(t.date),
+            'date_pytype': type(t.date).__name__,
+            'txn_type_repr': repr(t.txn_type),
+            'amount': t.amount,
+            'category_id': t.category_id,
+            'category_name': t.category.name if t.category else None,
+            'category_kind': t.category.kind if t.category else None,
+            'category_source': t.category_source,
+            'merchant': t.merchant_normalized,
+            'in_list_filter': in_list,
+            'in_expense_aggregate': in_agg,
+            'LIST_BUT_NOT_SPENT': in_list and not in_agg,
+        })
+
+    agg = _aggregate_window(current_user.id, window_start, today)
+
+    return jsonify({
+        'server_now_local': datetime.now().isoformat(),
+        'date_today': date.today().isoformat(),
+        'tz_name': time.tzname,
+        'tz_env': os.environ.get('TZ'),
+        'window_start': window_start.isoformat(),
+        'total_rows_all_time': len(rows),
+        'rows_in_list_window': sum(1 for r in out if r['in_list_filter']),
+        'rows_in_expense_agg': sum(1 for r in out if r['in_expense_aggregate']),
+        'rows_LIST_BUT_NOT_SPENT': sum(1 for r in out if r['LIST_BUT_NOT_SPENT']),
+        'txn_type_histogram': dict(Counter(repr(t.txn_type) for t in rows)),
+        'null_category_in_window': sum(1 for t in rows
+                                       if t.date >= window_start and t.category_id is None),
+        'aggregate_expense': agg['expense'],
+        'aggregate_income': agg['income'],
+        'donut_group_total': round(sum(g['total'] for g in agg['by_group']), 2),
+        'cycle_summaries': [{'cycle_start': s.cycle_start.isoformat(),
+                             'cycle_end': s.cycle_end.isoformat(),
+                             'expense_total': s.expense_total,
+                             'income_total': s.income_total,
+                             'txn_count': s.txn_count}
+                            for s in (CycleSummary.query
+                                      .filter_by(user_id=current_user.id)
+                                      .order_by(CycleSummary.cycle_start).all())],
+        'rows': out,
+    })
 
 
 # --- Portfolio ---
