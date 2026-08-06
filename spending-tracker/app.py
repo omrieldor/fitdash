@@ -1103,12 +1103,20 @@ def github_webhook():
     if ref and ref not in ('refs/heads/master', 'refs/heads/main'):
         return jsonify({'status': f'ignored {ref}'}), 200
 
+    # Let the deploy's own output reach the journal. This used to be discarded to
+    # DEVNULL, which meant a failed `git pull` -- a tracked file modified on the
+    # server makes git refuse to overwrite it and abort -- produced no message
+    # anywhere, while this endpoint still answered 200. The chain is && , so the
+    # failure also skipped the restart, and the app went on serving old code with
+    # every visible signal saying the deploy had succeeded. Print, don't swallow.
     subprocess.Popen(
         ['bash', '-c',
-         f'cd {REPO_DIR} && git pull && '
+         f'echo "deploy: starting" && cd {REPO_DIR} && '
+         f'{{ git pull --ff-only || {{ echo "deploy: PULL FAILED, still on $(git rev-parse --short HEAD)"; '
+         f'git status --short; exit 1; }} }} && '
          f'{APP_DIR}/venv/bin/pip install -q -r {APP_DIR}/requirements.txt && '
-         f'sudo systemctl restart spendtrack'],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+         f'sudo systemctl restart spendtrack && echo "deploy: done"'],
+        stdout=None, stderr=None)
     return jsonify({'status': 'deploying'})
 
 
