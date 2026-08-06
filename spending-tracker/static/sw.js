@@ -1,5 +1,5 @@
-const CACHE = 'spendtrack-v5';
-const STATIC = ['/static/style.css?v=5', '/static/chart.min.js', '/static/manifest.json', '/static/icon-180.png', '/static/icon-512.png'];
+const CACHE = 'spendtrack-v6';
+const STATIC = ['/static/style.css?v=6', '/static/chart.min.js', '/static/manifest.json', '/static/icon-180.png', '/static/icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC)));

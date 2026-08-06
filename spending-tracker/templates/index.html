@@ -8,7 +8,7 @@
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#2a2d35">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=6">
   <script defer src="/static/chart.min.js"></script>
 </head>
 <body>
@@ -100,6 +100,10 @@
       </div>
       <canvas id="chart-portfolio"></canvas>
       <div id="pf-holdings" class="holdings-list"></div>
+      <details class="pf-logs">
+        <summary>Logged entries</summary>
+        <div id="pf-snapshot-list"></div>
+      </details>
     </section>
 
     <!-- Performance vs market -->
@@ -226,11 +230,13 @@
     <div class="modal">
       <h3>Log Portfolio</h3>
       <p class="modal-hint">Enter your holdings. Prices update automatically between logs.</p>
+      <p class="modal-hint prefill-hint hidden" id="snap-prefill-hint"></p>
       <label>As of<input type="date" id="snap-date"></label>
       <label>Added since last time (₪)<input type="number" id="snap-contribution" placeholder="0" step="0.01"></label>
       <label>Uninvested cash (₪)<input type="number" id="snap-cash" placeholder="0" step="0.01"></label>
       <div id="snap-holdings"></div>
       <button type="button" class="btn-outline" id="btn-add-holding">+ Add Holding</button>
+      <button type="button" class="btn-linkish" id="btn-blank-snapshot">Start from blank instead</button>
       <div class="modal-actions">
         <button type="button" class="btn-outline" id="snapshot-cancel">Cancel</button>
         <button type="button" class="btn-primary" id="snapshot-save">Save</button>
@@ -540,6 +546,7 @@
 
     async function loadPortfolio() {
       const pf = await (await fetch('/api/portfolio')).json();
+      lastSnapshot = pf.latest_snapshot;
       document.getElementById('benchmark-label').textContent = pf.benchmark_label;
       document.getElementById('pf-value').textContent = pf.snapshot_count ? fmt(pf.current_value) : '—';
 
@@ -557,6 +564,29 @@
       renderPortfolioChart(pf.history);
       renderHoldings(pf.holdings);
       renderPerformance(pf.performance, pf.benchmark_label, pf.market_data_configured, pf.snapshot_count);
+      renderSnapshotList(pf.history);
+    }
+
+    function renderSnapshotList(history) {
+      const el = document.getElementById('pf-snapshot-list');
+      if (!history.length) {
+        el.innerHTML = '<p class="empty-hint">Nothing logged yet.</p>';
+        return;
+      }
+      el.innerHTML = [...history].reverse().map(h => `
+        <div class="pf-log-row">
+          <span>${h.date}</span>
+          <span>${fmt(h.value)}</span>
+          <button type="button" class="pf-log-del" data-id="${h.id}" title="Delete this entry">✕</button>
+        </div>`).join('');
+      el.querySelectorAll('.pf-log-del').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Delete this logged entry? This cannot be undone.')) return;
+          const res = await fetch(`/portfolio/snapshots/${btn.dataset.id}`, { method: 'DELETE' });
+          if (res.ok) { showToast('Entry deleted'); loadPortfolio(); }
+          else showToast('Could not delete entry');
+        };
+      });
     }
 
     function renderPortfolioChart(history) {
@@ -651,21 +681,57 @@
     }
 
     // Portfolio snapshot modal
-    function holdingRowHtml() {
+    // Attribute-safe escape. The existing esc() sets textContent, which leaves a
+    // double quote intact -- fine between tags, but these values go inside
+    // double-quoted value="" attributes, where an unescaped quote breaks out.
+    const escAttr = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+      c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    // `label` and `currency` are carried as hidden fields rather than dropped.
+    // The two TLV trackers are logged under substitute US tickers with the real
+    // security number in the label; re-logging without them would quietly erase
+    // that, and a holding in a non-USD currency would silently reprice wrong.
+    function holdingRowHtml(h) {
+      h = h || {};
       return `<div class="snap-holding">
-        <input type="text" class="snap-ticker" placeholder="Ticker (e.g. VOO)">
-        <input type="number" class="snap-qty" placeholder="Qty" step="0.0001">
-        <input type="number" class="snap-manual" placeholder="Value if no ticker" step="0.01">
+        <input type="text" class="snap-ticker" placeholder="Ticker (e.g. VOO)" value="${escAttr(h.ticker)}">
+        <input type="number" class="snap-qty" placeholder="Qty" step="0.0001" value="${h.quantity ?? ''}">
+        <input type="number" class="snap-manual" placeholder="Value if no ticker" step="0.01" value="${h.manual_value ?? ''}">
+        <input type="hidden" class="snap-label" value="${escAttr(h.label)}">
+        <input type="hidden" class="snap-currency" value="${escAttr(h.currency || 'USD')}">
         <button type="button" class="snap-remove">✕</button>
       </div>`;
     }
 
-    document.getElementById('btn-add-snapshot').addEventListener('click', () => {
+    // Last log, kept from the most recent loadPortfolio() so the modal can open
+    // pre-filled. Logging a month is otherwise retyping nine identical rows.
+    let lastSnapshot = null;
+
+    function openSnapshotModal(prefill) {
       document.getElementById('snap-date').value = new Date().toISOString().slice(0, 10);
-      document.getElementById('snap-holdings').innerHTML = holdingRowHtml();
+      const rows = prefill && prefill.holdings && prefill.holdings.length
+        ? prefill.holdings.map(holdingRowHtml).join('')
+        : holdingRowHtml();
+      document.getElementById('snap-holdings').innerHTML = rows;
+      // Cash carries over too, but the contribution does not: it means "added
+      // since last time", so reusing the previous month's figure would book a
+      // deposit that never happened and understate the return.
+      document.getElementById('snap-cash').value = prefill ? (prefill.cash_value ?? '') : '';
+      document.getElementById('snap-contribution').value = '';
+      const hint = document.getElementById('snap-prefill-hint');
+      hint.textContent = prefill
+        ? `Pre-filled from your ${prefill.as_of_date} log — edit anything you bought or sold.`
+        : '';
+      hint.classList.toggle('hidden', !prefill);
       bindHoldingRemovers();
       document.getElementById('snapshot-modal-backdrop').classList.remove('hidden');
-    });
+    }
+
+    document.getElementById('btn-add-snapshot').addEventListener('click',
+      () => openSnapshotModal(lastSnapshot));
+
+    document.getElementById('btn-blank-snapshot').addEventListener('click',
+      () => openSnapshotModal(null));
 
     document.getElementById('btn-add-holding').addEventListener('click', () => {
       document.getElementById('snap-holdings').insertAdjacentHTML('beforeend', holdingRowHtml());
@@ -687,6 +753,8 @@
         ticker: row.querySelector('.snap-ticker').value.trim(),
         quantity: parseFloat(row.querySelector('.snap-qty').value || '0'),
         manual_value: row.querySelector('.snap-manual').value || null,
+        label: row.querySelector('.snap-label').value || null,
+        currency: row.querySelector('.snap-currency').value || 'USD',
       })).filter(h => h.ticker);
 
       const res = await fetch('/portfolio/snapshots', {
