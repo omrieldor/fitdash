@@ -366,6 +366,13 @@ header {
 .phase-banner.cut #phase-progress-fill { background: linear-gradient(90deg, var(--red), #c06060); }
 #phase-progress-text { font-size: 0.8rem; font-weight: 700; color: var(--dim); white-space: nowrap; }
 
+/* Weight under the bulk floor (78 kg) — negative progress. */
+.phase-banner.under-floor .phase-label,
+.phase-banner.under-floor #phase-progress-text { color: var(--red); }
+.phase-banner.under-floor #phase-progress-fill {
+  background: linear-gradient(90deg, #c06060, var(--red));
+}
+
 
 /* ════════════════════════════════════
    SETTINGS
@@ -588,6 +595,9 @@ header {
   line-height: 1.2;
 }
 
+/* Below-goal state: <3 workouts this week, or weight under the bulk floor. */
+.summary-val.summary-warn { color: var(--red); }
+
 .summary-lbl {
   font-size: 0.62rem;
   color: var(--dim);
@@ -718,6 +728,30 @@ header {
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
+
+/* Collapsible section header (Recent Workouts) */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.section-head h2 { margin-bottom: 1.8rem; }
+
+.btn-collapse {
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+  border-radius: 8px;
+  opacity: 0.7;
+  transition: opacity 0.2s var(--ease), color 0.2s var(--ease);
+}
+.btn-collapse:hover { opacity: 1; color: var(--text); }
+
+#recent-workouts.collapsed { display: none; }
 
 .form-row {
   display: flex;

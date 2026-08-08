@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="/static/style.css?v=40">
+  <link rel="stylesheet" href="/static/style.css?v=41">
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -224,7 +224,12 @@
       </div>
 
       <div class="log-section">
-        <h2 data-i18n="Recent Workouts">Recent Workouts</h2>
+        <div class="section-head">
+          <h2 data-i18n="Recent Workouts">Recent Workouts</h2>
+          <button type="button" id="btn-toggle-recent" class="btn-collapse"
+                  onclick="toggleRecentWorkouts()" aria-expanded="true"
+                  aria-controls="recent-workouts" title="Collapse / expand">▲</button>
+        </div>
         <div id="recent-workouts"></div>
       </div>
 
@@ -750,21 +755,35 @@
       label.textContent = phase === 'bulk' ? t('Bulk Phase') : t('Cut Phase');
       banner.className = 'phase-banner ' + phase;
 
-      if (weights.length > 0) {
-        const current = weights[weights.length - 1].value_kg;
+      const latest = latestWeight();
+      if (latest) {
+        const current = latest.value_kg;
+        const sortedW = [...weights].sort((a, b) => a.date.localeCompare(b.date));
         detail.textContent = `Current: ${current} kg → Target: ${target} kg`;
-        if (phase === 'bulk') {
-          const start = weights[0].value_kg;
-          const pct = Math.min(100, Math.max(0, ((current - start) / (target - start)) * 100));
+        const underFloor = current < BULK_FLOOR_KG;
+        banner.classList.toggle('under-floor', underFloor);
+
+        if (phase === 'bulk' && underFloor) {
+          // Below the floor, report how far under we are: 78 kg = 0%, 50 kg = -100%.
+          const span = BULK_FLOOR_KG - BULK_FLOOR_MIN_KG;
+          const pct = Math.max(-100, ((current - BULK_FLOOR_KG) / span) * 100);
+          fill.style.width = Math.min(100, Math.abs(pct)).toFixed(0) + '%';
+          ptext.textContent = pct.toFixed(0) + '%';
+        } else if (phase === 'bulk') {
+          const start = sortedW[0].value_kg;
+          const denom = target - start;
+          const pct = denom === 0 ? 100 : Math.min(100, Math.max(0, ((current - start) / denom) * 100));
           fill.style.width = pct.toFixed(0) + '%';
           ptext.textContent = pct.toFixed(0) + '%';
         } else {
-          const start = weights[0].value_kg;
-          const pct = Math.min(100, Math.max(0, ((start - current) / (start - target)) * 100));
+          const start = sortedW[0].value_kg;
+          const denom = start - target;
+          const pct = denom === 0 ? 100 : Math.min(100, Math.max(0, ((start - current) / denom) * 100));
           fill.style.width = pct.toFixed(0) + '%';
           ptext.textContent = pct.toFixed(0) + '%';
         }
       } else {
+        banner.classList.remove('under-floor');
         detail.textContent = `Target: ${target} kg`;
         fill.style.width = '0%';
         ptext.textContent = '0%';
@@ -776,16 +795,18 @@
 
     function renderSummary() {
       const today = new Date();
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay() + 1);
-      const weekStr = weekStart.toISOString().slice(0, 10);
+      const weekStr = currentWeekStart();
 
       const thisWeekWorkouts = appData.workouts.filter(w => w.date >= weekStr);
       document.getElementById('s-workouts').textContent = thisWeekWorkouts.length;
+      // Under 3 workouts this week → flag the card red.
+      document.getElementById('s-workouts').classList.toggle('summary-warn', thisWeekWorkouts.length < 3);
 
-      const weights = appData.weights;
+      const latest = latestWeight();
       document.getElementById('s-weight').textContent =
-        weights.length ? weights[weights.length - 1].value_kg.toFixed(1) : '—';
+        latest ? latest.value_kg.toFixed(1) : '—';
+      document.getElementById('s-weight').classList.toggle(
+        'summary-warn', !!latest && latest.value_kg < BULK_FLOOR_KG);
 
       const sleeps = appData.sleeps.slice(-14);
       const sleepByDay = {};
@@ -836,7 +857,7 @@
           dt.setDate(sunDate.getDate() + d);
           allLabels.push({
             label: d === 0 ? w.label : '',
-            date: dt.toISOString().slice(0, 10),
+            date: isoLocal(dt),
             dayName: dayNames[d],
             weekLabel: w.label,
             isSpacer: false
@@ -888,6 +909,8 @@
           if (slot.dayName === 'Sun') return slot.weekLabel;
           return '';
         };
+        charts.workouts.options.scales.x.ticks.align = 'start';
+        charts.workouts.options.scales.x.ticks.crossAlign = 'near';
         charts.workouts.update();
       } else {
         charts.workouts = new Chart(ctx, {
@@ -918,6 +941,10 @@
                     if (slot.dayName === 'Sun') return slot.weekLabel;
                     return '';
                   },
+                  // Left-align so the "W" starts at the Sunday slot instead of
+                  // being centered on it.
+                  align: 'start',
+                  crossAlign: 'near',
                   maxRotation: 0
                 }
               },
@@ -973,13 +1000,16 @@
       const today = new Date();
       const cutoff = new Date(today);
       cutoff.setDate(today.getDate() - 30);
-      const last = loggedDays.length ? new Date(loggedDays[loggedDays.length - 1]) : today;
-      const start = loggedDays.length ? new Date(Math.max(new Date(loggedDays[0]), cutoff)) : new Date(cutoff);
+      const lastLogged = loggedDays.length ? parseLocalDate(loggedDays[loggedDays.length - 1]) : today;
+      // Always run the axis through today, so a sleep logged for today shows up
+      // immediately even if the newest row is older.
+      const last = lastLogged > today ? lastLogged : today;
+      const start = loggedDays.length ? new Date(Math.max(parseLocalDate(loggedDays[0]), cutoff)) : new Date(cutoff);
       const days = [];
       for (let d = new Date(start); d <= last; d.setDate(d.getDate() + 1)) {
-        days.push(d.toISOString().slice(0, 10));
+        days.push(isoLocal(d));
       }
-      if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); } }
+      if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(isoLocal(d)); } }
       const labels = days.map(d => fmtDate(d));
       const newDatasets = [
         { label: 'Hours slept', data: days.map(d => sleepMap[d] ? sleepMap[d].hours : null), borderColor: '#4a9edd', backgroundColor: 'rgba(74,158,221,0.1)', tension: 0, fill: true, _ids: days.map(d => sleepMap[d] ? sleepMap[d].ids : null), spanGaps: false, pointRadius: 5, pointHitRadius: 20, pointHoverRadius: 8 },
@@ -1015,13 +1045,14 @@
       const today = new Date();
       const cutoff = new Date(today);
       cutoff.setDate(today.getDate() - 30);
-      const last = loggedDays.length ? new Date(loggedDays[loggedDays.length - 1]) : today;
-      const start = loggedDays.length ? new Date(Math.max(new Date(loggedDays[0]), cutoff)) : new Date(cutoff);
+      const lastLogged = loggedDays.length ? parseLocalDate(loggedDays[loggedDays.length - 1]) : today;
+      const last = lastLogged > today ? lastLogged : today;
+      const start = loggedDays.length ? new Date(Math.max(parseLocalDate(loggedDays[0]), cutoff)) : new Date(cutoff);
       const days = [];
       for (let d = new Date(start); d <= last; d.setDate(d.getDate() + 1)) {
-        days.push(d.toISOString().slice(0, 10));
+        days.push(isoLocal(d));
       }
-      if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d.toISOString().slice(0, 10)); } }
+      if (!days.length) { for (let i = 6; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(isoLocal(d)); } }
       const contDays = days.map(d => dailyMap[d] || null);
       const contLabels = days.map(d => fmtDate(d));
       const newDatasets = [
@@ -1058,14 +1089,14 @@
       const today = new Date();
       const weekMap = {};
       Object.keys(dailyMap).sort().forEach(dateStr => {
-        const d = new Date(dateStr);
+        const d = parseLocalDate(dateStr);
         const day = d.getDay();
         const sun = new Date(d);
         sun.setDate(d.getDate() - day);
         const sat = new Date(sun);
         sat.setDate(sun.getDate() + 6);
         if (today <= sat) return;
-        const weekKey = sun.toISOString().slice(0, 10);
+        const weekKey = isoLocal(sun);
         if (!weekMap[weekKey]) weekMap[weekKey] = { carbs: [], protein: [], creatine: [] };
         weekMap[weekKey].carbs.push(dailyMap[dateStr].carbs);
         weekMap[weekKey].protein.push(dailyMap[dateStr].protein);
@@ -1076,10 +1107,10 @@
       if (!weeks.length) return;
       const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 10) / 10 : 0;
       const weekLabels = weeks.map(w => {
-        const s = new Date(w);
+        const s = parseLocalDate(w);
         const e = new Date(s);
         e.setDate(s.getDate() + 6);
-        return fmtDate(w.slice(0, 10)) + '–' + fmtDate(e.toISOString().slice(0, 10));
+        return fmtDate(w.slice(0, 10)) + '–' + fmtDate(isoLocal(e));
       });
 
       const wkDatasets = [
@@ -1127,8 +1158,8 @@
         end.setDate(start.getDate() + 6);
         const wn = getISOWeekNumber(start);
         weeks.push({
-          start: start.toISOString().slice(0, 10),
-          end: end.toISOString().slice(0, 10),
+          start: isoLocal(start),
+          end: isoLocal(end),
           label: 'W' + wn
         });
       }
@@ -1139,6 +1170,42 @@
       const [y, m, dd] = d.split('-');
       return dd + '/' + m + '/' + y.slice(2);
     }
+
+    // Local-calendar YYYY-MM-DD. toISOString() converts to UTC first, which
+    // shifts the day back by one for any UTC+ timezone — that made chart axis
+    // keys miss the sleep/nutrition rows stored under their true local date.
+    function isoLocal(d) {
+      return d.getFullYear() + '-' +
+             String(d.getMonth() + 1).padStart(2, '0') + '-' +
+             String(d.getDate()).padStart(2, '0');
+    }
+
+    // Parse "YYYY-MM-DD" as local midnight. new Date("2026-08-08") parses as
+    // UTC midnight, which is a different local day in UTC+ zones.
+    function parseLocalDate(s) {
+      const [y, m, d] = s.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    // Sunday-based week start, matching the rest of the app (plan prompt,
+    // workout chart). The old "- getDay() + 1" pointed at tomorrow on Sundays,
+    // which zeroed the weekly workout count all day.
+    function currentWeekStart() {
+      const d = new Date();
+      d.setDate(d.getDate() - d.getDay());
+      return isoLocal(d);
+    }
+
+    // Rows come back in insertion order, so the newest entry is not necessarily
+    // last — a backdated log would otherwise be read as "current".
+    function latestWeight() {
+      if (!appData.weights || !appData.weights.length) return null;
+      return [...appData.weights].sort((a, b) => a.date.localeCompare(b.date))[appData.weights.length - 1];
+    }
+
+    // Below this weight the bulk phase reports negative progress.
+    const BULK_FLOOR_KG = 78;
+    const BULK_FLOOR_MIN_KG = 50;  // 50 kg == -100%
 
     function autoFormatDate(el) {
       let v = el.value.replace(/[^\d]/g, '');
@@ -1195,6 +1262,7 @@
       const sorted = [...appData.workouts].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
       if (!sorted.length) {
         container.innerHTML = '<p class="no-workouts">' + t('No workouts logged yet.') + '</p>';
+        applyRecentCollapsed();
         return;
       }
       container.innerHTML = sorted.map(w => {
@@ -1240,6 +1308,24 @@
           (exRows ? '<div class="wo-ex-list">' + exRows + '</div>' : '') +
         '</div>';
       }).join('');
+      applyRecentCollapsed();
+    }
+
+    let recentCollapsed = localStorage.getItem('recentCollapsed') === '1';
+
+    function applyRecentCollapsed() {
+      const list = document.getElementById('recent-workouts');
+      const btn = document.getElementById('btn-toggle-recent');
+      if (!list || !btn) return;
+      list.classList.toggle('collapsed', recentCollapsed);
+      btn.textContent = recentCollapsed ? '▼' : '▲';
+      btn.setAttribute('aria-expanded', recentCollapsed ? 'false' : 'true');
+    }
+
+    function toggleRecentWorkouts() {
+      recentCollapsed = !recentCollapsed;
+      localStorage.setItem('recentCollapsed', recentCollapsed ? '1' : '0');
+      applyRecentCollapsed();
     }
 
     function relogWorkout(id) {
@@ -1396,7 +1482,7 @@
       if (protIn && protIn.value && !protIn.closest('.hidden')) data.protein = parseFloat(protIn.value);
       if (carbIn && carbIn.value && !carbIn.closest('.hidden')) data.carbs = parseFloat(carbIn.value);
       if (creatIn && creatIn.value && !creatIn.closest('.hidden')) data.creatine = parseFloat(creatIn.value);
-      data.date = (dateIn && dateIn.value) ? parseDateInput(dateIn.value) : new Date().toISOString().slice(0, 10);
+      data.date = (dateIn && dateIn.value) ? parseDateInput(dateIn.value) : isoLocal(new Date());
       await fetch('/log/nutrition', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1533,10 +1619,7 @@
       prompt.classList.add('hidden');
       planDisplay.classList.remove('hidden');
 
-      const today = new Date();
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay() + 1);
-      const weekStr = weekStart.toISOString().slice(0, 10);
+      const weekStr = currentWeekStart();
       const thisWeekWorkouts = appData.workouts.filter(w => w.date >= weekStr);
 
       const typeCounts = {};
@@ -1566,7 +1649,7 @@
       document.getElementById('plan-boxes').innerHTML = boxesHtml;
 
       const summaryEl = document.getElementById('plan-summary');
-      const day = today.getDay();
+      const day = new Date().getDay();
       if (day === 0 || day === 6) {
         summaryEl.classList.remove('hidden');
         summaryEl.innerHTML = t('This week:') + ' <strong>' + completedCount + '/' + entries.length + ' ' + t('completed') + '</strong>';
@@ -2203,7 +2286,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type, notes,
-          date: parseDateInput(dateVal) || new Date().toISOString().slice(0, 10),
+          date: parseDateInput(dateVal) || isoLocal(new Date()),
           duration: duration || null,
           exercises
         })
