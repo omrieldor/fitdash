@@ -1,0 +1,37 @@
+#!/bin/sh
+# Block commits that touch both apps in this repo.
+#
+# Two independent apps share one repo: the fitness app at the root and
+# SpendTrack under spending-tracker/. They share 15 identical relative
+# paths (app.py, models.py, templates/index.html, ...), so an edit meant
+# for one can silently land in the other. A mixed commit is almost always
+# that mistake rather than intent.
+#
+# Enable: git config core.hooksPath .githooks
+# Bypass (only if you truly mean it): git commit --no-verify
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+spend=$(printf '%s\n' "$staged" | grep '^spending-tracker/' \
+        | grep -v '^spending-tracker/CLAUDE\.md$')
+# Shared infrastructure belongs to neither app; it must not force a split.
+root=$(printf '%s\n' "$staged" | grep -v '^spending-tracker/' \
+       | grep -vE '^(CLAUDE\.md|README(\.md)?|\.githooks/|\.gitignore$|tools/)')
+
+if [ -n "$spend" ] && [ -n "$root" ]; then
+  echo "BLOCKED: this commit touches BOTH apps." >&2
+  echo >&2
+  echo "  Fitness app (root):" >&2
+  printf '%s\n' "$root"  | sed 's/^/    /' >&2
+  echo "  SpendTrack:" >&2
+  printf '%s\n' "$spend" | sed 's/^/    /' >&2
+  echo >&2
+  echo "These are separate apps on separate services. Commit them separately:" >&2
+  echo "    git reset && git add <one app's files> && git commit" >&2
+  echo >&2
+  echo "If this really is intentional: git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0

@@ -13,6 +13,37 @@ One public repo, **two fully independent apps**, one Oracle Cloud VM.
 **Hard rule: a change to one app must never touch the other's files.** Every PR
 so far has verified its diff stays inside its own directory — keep it that way.
 
+## Telling the two apps apart (read this before editing)
+
+The fitness app is at the **repo root**, so bare paths like `app.py`,
+`models.py`, or `templates/index.html` **silently resolve to it**. These 15
+files exist at the same relative path in *both* apps:
+
+`app.py` · `models.py` · `requirements.txt` · `.gitignore` ·
+`templates/index.html` · `templates/login.html` · `static/style.css` ·
+`static/sw.js` · `static/manifest.json` · `static/icon-{180,512}.png` ·
+`deploy/{setup-server,update-app,backup-db,add-ssl}.sh`
+
+A repo-wide search for something like `def login` returns `./app.py` **and**
+`./spending-tracker/app.py`. Always check which path a result came from, and
+write `spending-tracker/...` explicitly when you mean that app.
+
+Two guardrails exist:
+
+```bash
+bash tools/which-app.sh     # which app does my diff touch? where does it deploy?
+```
+
+and a **pre-commit hook that blocks any commit spanning both apps**. Enable it
+once per clone (it is not active by default in a fresh clone):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`spending-tracker/CLAUDE.md` carries the same warning for sessions that start
+inside that directory.
+
 ## Where the real documentation lives
 
 - `spending-tracker/README.md` — SpendTrack's full docs, including the
