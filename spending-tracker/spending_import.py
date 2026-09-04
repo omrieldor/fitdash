@@ -158,6 +158,7 @@ SEED_RULES = {
     'פאב': 'Bars', 'IRISH PUB': 'Bars', 'BEER GARDEN': 'Bars', 'ביר גארדן': 'Bars',
     'קיוסק': 'Snacks', 'פיצוציה': 'Snacks',
     'מתנה': 'Gifts', 'מתנות': 'Gifts', 'GIFT': 'Gifts',
+    'מספרה': 'Haircut', 'BARBER': 'Haircut', 'ברברשופ': 'Haircut',
 }
 
 

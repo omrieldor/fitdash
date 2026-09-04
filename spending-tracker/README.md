@@ -64,7 +64,7 @@ Two levels — a group and its children:
 | Friends | Gifts, Money Lent, Bill Split |
 | Transport | Public Transport, Taxi & Rideshare |
 | Shopping | Clothing, Electronics, General Shopping |
-| Health | Pharmacy, Doctor & Dental, Gym & Fitness, Health Insurance |
+| Health | Pharmacy, Doctor & Dental, Gym & Fitness, Haircut, Health Insurance |
 | Entertainment | Streaming & Subscriptions, Events & Nightlife, Hobbies |
 | Travel | Flights, Hotels, Vacation |
 | Financial | Bank Fees, Taxes, Loan Payment |

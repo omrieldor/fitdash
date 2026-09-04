@@ -279,7 +279,8 @@ CATEGORY_TREE = [
         ('Clothing', '👕'), ('Electronics', '📱'), ('General Shopping', '🏬'),
     ]),
     ('Health', '💊', '#4ca6a8', 'expense', [
-        ('Pharmacy', '💊'), ('Doctor & Dental', '🩺'), ('Gym & Fitness', '🏋️'), ('Health Insurance', '🏥'),
+        ('Pharmacy', '💊'), ('Doctor & Dental', '🩺'), ('Gym & Fitness', '🏋️'),
+        ('Haircut', '💇'), ('Health Insurance', '🏥'),
     ]),
     ('Entertainment', '🎬', '#7a5ac9', 'expense', [
         ('Streaming & Subscriptions', '🔁'), ('Events & Nightlife', '🎟️'), ('Hobbies', '🎨'),
