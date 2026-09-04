@@ -12,15 +12,23 @@ entries.json format:
   "note": "salary slip photo, August",
   "entries": [
     {"date": "2026-08-01", "merchant": "משכורת", "amount": 28500.0,
-     "type": "income", "card": null, "category": "Salary"},
+     "type": "income", "card": null, "account": null, "category": "Salary"},
     {"date": "2026-08-03", "merchant": "ארומה", "amount": 38.0,
-     "type": "expense", "card": "Visa •1234", "category": null}
+     "type": "expense", "card": "Visa •1234", "account": "Isracard",
+     "category": null}
   ]
 }
 
 "category" is optional — when present it must name an existing child category
 and is treated as a manual (trusted) classification; when null the server's
 keyword rules decide.
+
+"account" names the account the entry belongs to, matched case-insensitively
+against the user's existing accounts. Set it whenever the charges could also
+arrive from a statement import: the dedup hash is computed from account_id, so
+entries falling back to the auto-created "Photo Imports" account can never
+collide with the same charges imported normally, and get silently duplicated.
+inbox/README.md explains the failure in full.
 """
 
 import base64

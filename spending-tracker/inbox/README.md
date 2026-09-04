@@ -25,9 +25,10 @@ committing readable financial data here is never acceptable.
      "note": "what the photo was",
      "entries": [
        {"date": "2026-08-01", "merchant": "משכורת אוגוסט", "amount": 28500,
-        "type": "income", "card": null, "category": "Salary"},
+        "type": "income", "card": null, "account": null, "category": "Salary"},
        {"date": "2026-08-03", "merchant": "ארומה", "amount": 38,
-        "type": "expense", "card": "Visa •1234", "category": null}
+        "type": "expense", "card": "Visa •1234", "account": "Isracard",
+        "category": null}
      ]
    }
    ```
@@ -35,6 +36,44 @@ committing readable financial data here is never acceptable.
    Set `category` only when confident (it must name an existing child category
    — see `CATEGORY_TREE` in `models.py`); it is trusted like a manual
    correction. Leave it `null` to let the server's keyword rules decide.
+
+   **Always set `account`, and ask the user for the name if you don't know it.**
+   This is the field that decides whether duplicate protection works at all, and
+   getting it wrong is silent — see the warning below.
+
+### `account` decides whether dedup can see anything
+
+`compute_dedup_hash` takes `account_id` as its **first component**, and the
+ingest only looks for a collision *within the same account*:
+
+```python
+dedup_hash = compute_dedup_hash(account.id, txn_date, signed, merchant_raw)
+Transaction.query.filter_by(account_id=account.id, dedup_hash=dedup_hash)
+```
+
+`account` is matched case-insensitively against the user's account names, and
+anything that doesn't match — **including omitting the field** — falls back to
+an auto-created account called "Photo Imports". Entries parked there can never
+collide with the same charges imported from a statement, because those live in
+the user's real card account and therefore hash differently. Dedup does not
+fail loudly in that case; it simply never fires, and the user ends up with two
+of every charge, split across two accounts, with correct-looking per-account
+totals and doubled category totals.
+
+This has actually happened: a session logged a card's whole billing cycle from
+screenshots without setting `account`, and every charge the user had already
+imported from that cycle's statement was silently duplicated.
+
+So: name the account the way the user's app does, matching the card the charges
+were made on. `card` is only a display label on the transaction — it plays no
+part in dedup and does not route the entry anywhere.
+
+Even with the right account, dedup still needs `merchant` to match the stored
+string exactly (compared stripped and lowercased). Card apps truncate long
+merchant names on screen, so a name copied from a phone screenshot may not match
+what the statement's CSV recorded. Treat dedup as a backstop, not a guarantee:
+when charges may already have been imported from a statement, ask the user
+rather than re-sending the period and relying on the hash to sort it out.
 
 2. `cryptography` may be broken in the system Python of the sandbox — use a
    venv: `python3 -m venv venv && venv/bin/pip install cryptography`.
