@@ -320,3 +320,14 @@ canvas { max-height: 220px; }
 .lib-sub { margin-top: 1.1rem; }
 #lib-detail .summary-bar { margin-bottom: 0.4rem; }
 #chart-lib-category { max-height: 200px; }
+
+/* Cleanup panel: photo-import duplicate repair */
+.cleanup-summary {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--card-alt, rgba(127, 127, 127, 0.08));
+  line-height: 1.6;
+}
+.cleanup-summary .empty-hint { margin-top: 6px; }
+#cleanup-actions { margin-top: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

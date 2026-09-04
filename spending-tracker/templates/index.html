@@ -8,7 +8,7 @@
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#2a2d35">
   <link rel="apple-touch-icon" href="/static/icon-180.png" sizes="180x180">
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=7">
   <script defer src="/static/chart.min.js"></script>
 </head>
 <body>
@@ -198,6 +198,26 @@
           <div id="lib-category-legend" class="legend-list"></div>
           <h3 class="lib-sub">Top Merchants</h3>
           <div id="lib-merchants" class="merchant-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cleanup: photo-import entries that duplicate statement rows -->
+    <section class="log-section">
+      <h3 class="collapsible-header" id="cleanup-toggle">🧹 Cleanup <span id="cleanup-toggle-icon">▾</span></h3>
+      <div id="cleanup-panel" class="hidden">
+        <p class="empty-hint" id="cleanup-intro">
+          Entries added from a photo can duplicate the same charges imported from a
+          statement. This finds them and shows you the list before anything is deleted.
+        </p>
+        <button type="button" class="btn-outline" id="cleanup-scan">Scan for duplicates</button>
+        <div id="cleanup-result" class="hidden">
+          <div id="cleanup-summary" class="cleanup-summary"></div>
+          <div id="cleanup-lists"></div>
+          <div id="cleanup-actions" class="hidden">
+            <button type="button" class="btn-primary" id="cleanup-apply">Delete duplicates</button>
+            <span class="empty-hint" id="cleanup-warning">This cannot be undone.</span>
+          </div>
         </div>
       </div>
     </section>
@@ -941,6 +961,94 @@
     }
     bindCollapsible('txn-toggle', 'txn-list', 'txn-toggle-icon');
     bindCollapsible('nw-toggle', 'nw-panel', 'nw-toggle-icon');
+    bindCollapsible('cleanup-toggle', 'cleanup-panel', 'cleanup-toggle-icon');
+
+    // ── Cleanup: photo-import entries duplicating statement rows ──
+    // Scanning is read-only and repeatable; applying is a second, explicit tap.
+
+    document.getElementById('cleanup-scan').addEventListener('click', async () => {
+      const btn = document.getElementById('cleanup-scan');
+      btn.disabled = true;
+      btn.textContent = 'Scanning…';
+      try {
+        renderCleanup(await (await fetch('/maintenance/photo-dupes')).json());
+      } catch (err) {
+        showToast('Scan failed');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Scan for duplicates';
+      }
+    });
+
+    function cleanupRows(title, rows, note) {
+      if (!rows.length) return '';
+      return `<h3 class="lib-sub">${esc(title)} (${rows.length})</h3>` +
+        `<div class="txn-list">` + rows.map(r => `
+          <div class="txn-row">
+            <div class="txn-info">
+              <span class="txn-merchant">${esc(r.merchant)}</span>
+              <span class="txn-meta">${esc(r.date)}${r.card ? ` · <span class="card-chip">${esc(r.card)}</span>` : ''}${note(r)}</span>
+            </div>
+            <span class="txn-amount">${fmt2(r.amount)}</span>
+          </div>`).join('') + `</div>`;
+    }
+
+    function renderCleanup(data) {
+      const result = document.getElementById('cleanup-result');
+      const lists = document.getElementById('cleanup-lists');
+      const summary = document.getElementById('cleanup-summary');
+      const actions = document.getElementById('cleanup-actions');
+      result.classList.remove('hidden');
+
+      if (!data.available) {
+        summary.innerHTML = '<strong>Nothing to repair</strong> — no photo-import account.';
+        lists.innerHTML = '';
+        actions.classList.add('hidden');
+        return;
+      }
+
+      const accounts = data.accounts.map(a => `${esc(a.name)} (${a.rows})`).join(' · ');
+      const mapping = Object.entries(data.mapping)
+        .map(([card, name]) => `${esc(card)} → ${esc(name)}`).join('<br>');
+
+      summary.innerHTML =
+        `<div><strong>${data.deletes.length}</strong> duplicates to delete` +
+        ` — ${fmt2(data.totals.deletes)}</div>` +
+        `<div><strong>${data.moves.length}</strong> to move into the right account` +
+        ` — ${fmt2(data.totals.moves)}</div>` +
+        `<div><strong>${data.stays.length}</strong> staying put — ${fmt2(data.totals.stays)}</div>` +
+        `<div class="empty-hint">Accounts: ${accounts}</div>` +
+        (mapping ? `<div class="empty-hint">${mapping}</div>` : '');
+
+      lists.innerHTML =
+        cleanupRows('Delete — already imported from a statement', data.deletes,
+                    r => r.account ? ` · duplicate of a row in ${esc(r.account)}` : '') +
+        cleanupRows('Move — the only copy, filed in the wrong account', data.moves,
+                    r => r.account ? ` · → ${esc(r.account)}` : '') +
+        cleanupRows('Keep — nowhere else to file these', data.stays, () => '');
+
+      actions.classList.toggle('hidden', !data.deletes.length && !data.moves.length);
+    }
+
+    document.getElementById('cleanup-apply').addEventListener('click', async () => {
+      if (!confirm('Delete the duplicates and move the rest? This cannot be undone.')) return;
+      const btn = document.getElementById('cleanup-apply');
+      btn.disabled = true;
+      btn.textContent = 'Working…';
+      try {
+        const res = await fetch('/maintenance/photo-dupes/apply', { method: 'POST' });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || 'failed');
+        showToast(`Deleted ${out.deleted}, moved ${out.moved}.`);
+        await loadAll();
+        renderCleanup(await (await fetch('/maintenance/photo-dupes')).json());
+      } catch (err) {
+        showToast('Cleanup failed');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Delete duplicates';
+      }
+    });
 
     // ── Library (archived months, read-only) ─────────────────
 

@@ -1084,6 +1084,38 @@ def push_test():
     return jsonify({'sent': sent, 'failed': failed})
 
 
+# --- Maintenance: photo-import duplicates ---
+
+# Photo-import entries whose payload omitted `account` land in a segregated
+# "Photo Imports" account where the account-scoped dedup hash cannot see the
+# same charges imported from a statement, so they duplicate silently. The
+# repair also exists as tools/fix_photo_import_dupes.py; these endpoints are
+# the phone-reachable front end, sharing photo_dupes.py so the two cannot
+# disagree. Reporting and applying are deliberately separate calls: nothing is
+# deleted until the plan has been shown and explicitly confirmed.
+
+@app.route('/maintenance/photo-dupes')
+@login_required
+def photo_dupes_report():
+    from photo_dupes import build_plan, plan_as_dict
+    plan = build_plan(current_user)
+    if plan is None:
+        return jsonify({'available': False})
+    return jsonify(dict(plan_as_dict(plan), available=True))
+
+
+@app.route('/maintenance/photo-dupes/apply', methods=['POST'])
+@login_required
+def photo_dupes_apply():
+    from photo_dupes import build_plan, apply_plan
+    plan = build_plan(current_user)
+    if plan is None:
+        return jsonify({'error': 'nothing to repair'}), 400
+    # Rebuilt from the live rows rather than trusting anything the client sent,
+    # so a stale page cannot delete a row the plan no longer covers.
+    return jsonify(apply_plan(plan))
+
+
 # --- Auto-deploy webhook ---
 
 DEPLOY_SECRET = os.environ.get('DEPLOY_SECRET', '')
